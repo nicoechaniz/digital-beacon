@@ -7,123 +7,84 @@
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
-            background: #0a0a0f;
-            color: #e0e0e0;
+            background: #0a0a0f; color: #e0e0e0;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-            padding: 20px;
-            min-height: 100vh;
+            padding: 12px; min-height: 100vh;
         }
-        h1 {
-            text-align: center; margin-bottom: 8px;
-            font-weight: 300; letter-spacing: 2px; font-size: 1.5rem;
-        }
-        .subtitle {
-            text-align: center; color: #666; margin-bottom: 12px; font-size: 0.85rem;
-        }
+        h1 { text-align: center; font-weight: 300; letter-spacing: 2px; font-size: 1.3rem; margin-bottom: 4px; }
+        .subtitle { text-align: center; color: #666; margin-bottom: 8px; font-size: 0.7rem; }
         .spectrum {
             display: flex; align-items: flex-end; justify-content: center;
-            gap: 2px; height: 60px; max-width: 1400px;
-            margin: 0 auto 20px; padding: 8px;
-            background: #0d0d14; border-radius: 8px; border: 1px solid #1a1a2e;
+            gap: 1px; height: 40px; max-width: 1500px;
+            margin: 0 auto 12px; padding: 4px;
+            background: #0d0d14; border-radius: 6px; border: 1px solid #1a1a2e;
         }
-        .spectrum-bar {
-            flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
-            transition: height 0.1s, background 0.1s; opacity: 0.85;
-        }
+        .spectrum-bar { flex: 1; min-width: 2px; border-radius: 2px 2px 0 0; transition: height 0.1s, background 0.1s; opacity: 0.85; }
         .header {
-            display: flex; justify-content: center; gap: 24px; align-items: center;
-            margin-bottom: 12px; flex-wrap: wrap;
+            display: flex; justify-content: center; gap: 12px; align-items: center;
+            margin-bottom: 8px; flex-wrap: wrap;
         }
-        .pill {
-            background: #12121a; border: 1px solid #1a1a2e;
-            padding: 6px 14px; border-radius: 6px; font-size: 0.8rem;
-        }
+        .pill { background: #12121a; border: 1px solid #1a1a2e; padding: 4px 10px; border-radius: 4px; font-size: 0.7rem; }
         .pill b { color: #1abc9c; }
         .conn-ok { color: #2ecc71; }
         .conn-bad { color: #e74c3c; }
         button.action {
-            padding: 8px 16px; border-radius: 6px; border: 1px solid #e74c3c;
+            padding: 5px 10px; border-radius: 4px; border: 1px solid #e74c3c;
             background: transparent; color: #e74c3c; cursor: pointer;
-            font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
+            font-size: 0.65rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
         }
         button.action:hover { background: #e74c3c; color: #000; }
         .grid {
             display: grid; grid-template-columns: repeat(8, 1fr);
-            gap: 4px; max-width: 1600px; margin: 0 auto 16px;
+            gap: 3px; max-width: 1600px; margin: 0 auto 10px;
         }
         .band {
-            background: #12121a; border-radius: 6px; padding: 4px 3px;
+            background: #12121a; border-radius: 4px; padding: 3px 2px;
             text-align: center; border: 1px solid #1a1a2e;
             transition: border-color 0.15s; position: relative;
         }
         .band.sc-active { border-color: #1abc9c; background: #0e1c18; }
         .led {
-            position: absolute; top: 3px; right: 3px;
-            width: 6px; height: 6px; border-radius: 50%;
-            background: #333; transition: background 0.05s, box-shadow 0.05s;
+            position: absolute; top: 2px; right: 2px;
+            width: 5px; height: 5px; border-radius: 50%;
+            background: #333; transition: background 0.05s;
         }
-        .led.on { background: #e74c3c; box-shadow: 0 0 6px #e74c3c; }
-        .band-label {
-            font-size: 0.65rem; font-weight: 600; color: #1abc9c;
-            letter-spacing: 0.5px;
-        }
-        .band-freq { font-size: 0.55rem; color: #888; margin-bottom: 2px; }
+        .led.on { background: #e74c3c; box-shadow: 0 0 4px #e74c3c; }
+        .band-label { font-size: 0.55rem; font-weight: 600; color: #1abc9c; }
+        .band-freq { font-size: 0.48rem; color: #888; }
         .divider {
-            font-size: 0.4rem; color: #444; text-transform: uppercase;
-            letter-spacing: 1px; margin: 4px 0 2px;
-            border-top: 1px solid #1a1a2e; padding-top: 2px;
+            font-size: 0.35rem; color: #444; text-transform: uppercase;
+            letter-spacing: 1px; border-top: 1px solid #1a1a2e; padding-top: 1px; margin: 2px 0 1px;
         }
-        .fader-container {
-            height: 60px; display: flex; justify-content: center;
-            align-items: center; margin-bottom: 2px;
-        }
-        input[type=range][orient=vertical] {
-            writing-mode: bt-lr; -webkit-appearance: slider-vertical;
-            width: 16px; height: 55px;
-        }
+        .param-row { display: flex; align-items: center; gap: 2px; margin-bottom: 1px; }
+        .param-row label { font-size: 0.38rem; color: #888; text-transform: uppercase; min-width: 14px; text-align: right; }
+        .param-row input[type=range] { flex: 1; height: 10px; }
+        .param-row .val { font-size: 0.38rem; color: #aaa; min-width: 22px; text-align: left; }
         input[type=range] { -webkit-appearance: none; background: transparent; cursor: pointer; }
         input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none; height: 10px; width: 10px;
-            border-radius: 50%; background: currentColor; margin-top: -3px;
-            box-shadow: 0 0 4px currentColor;
+            -webkit-appearance: none; height: 8px; width: 8px;
+            border-radius: 50%; background: currentColor; margin-top: -2px;
         }
-        input[type=range]::-webkit-slider-runnable-track {
-            height: 3px; background: #2a2a3e; border-radius: 2px;
-        }
-        .param {
-            display: flex; align-items: center; gap: 3px; margin-bottom: 2px;
-        }
-        .param label {
-            font-size: 0.45rem; color: #888; text-transform: uppercase;
-            letter-spacing: 0.5px; min-width: 16px; text-align: right;
-        }
-        .param input[type=range] { flex: 1; }
-        .param .val {
-            font-size: 0.45rem; color: #aaa; min-width: 24px; text-align: left;
-        }
+        input[type=range]::-webkit-slider-runnable-track { height: 2px; background: #2a2a3e; border-radius: 1px; }
         .solo-btn {
-            padding: 2px 5px; font-size: 0.45rem; font-weight: 700;
+            padding: 1px 4px; font-size: 0.38rem; font-weight: 700;
             letter-spacing: 0.5px; text-transform: uppercase;
-            border: 1px solid #444; border-radius: 3px;
+            border: 1px solid #444; border-radius: 2px;
             background: transparent; color: #666; cursor: pointer;
-            transition: all 0.15s;
+            margin: 1px 0;
         }
-        .solo-btn.on { background: #1abc9c; color: #000; border-color: #1abc9c; box-shadow: 0 0 6px #1abc9c; }
-        .solo-btn.shaper-on { background: #e74c3c; color: #000; border-color: #e74c3c; box-shadow: 0 0 6px #e74c3c; }
+        .solo-btn.on { background: #1abc9c; color: #000; border-color: #1abc9c; }
         .mix-section {
-            max-width: 1600px; margin: 0 auto 12px; background: #12121a;
-            border-radius: 8px; padding: 10px 16px; border: 1px solid #1a1a2e;
+            max-width: 1600px; margin: 0 auto 8px; background: #12121a;
+            border-radius: 6px; padding: 8px 12px; border: 1px solid #1a1a2e;
         }
-        .mix-grid {
-            display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-            gap: 12px;
-        }
+        .mix-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 8px; }
         .mix-param { text-align: center; }
         .mix-param input[type=range] { width: 100%; }
-        .mix-param label.section-label {
-            display: block; font-size: 0.6rem; margin-bottom: 6px;
-            text-transform: uppercase; letter-spacing: 1px;
-        }
+        .mix-param label.sl { display: block; font-size: 0.5rem; margin-bottom: 3px; text-transform: uppercase; letter-spacing: 1px; }
+        .mix-param .val { font-size: 0.5rem; }
+        .lfo-section { margin-top: 6px; padding-top: 4px; border-top: 1px solid #1a1a2e; }
+        select { background: #0d0d14; border: 1px solid #2a2a3e; color: #e0e0e0; padding: 3px 6px; border-radius: 3px; font-size: 0.65rem; }
         @media (max-width: 1400px) { .grid { grid-template-columns: repeat(8, 1fr); } }
         @media (max-width: 1200px) { .grid { grid-template-columns: repeat(6, 1fr); } }
         @media (max-width: 900px)  { .grid { grid-template-columns: repeat(4, 1fr); } }
@@ -132,56 +93,71 @@
 </head>
 <body>
     <h1>digital-beacon</h1>
-    <p class="subtitle">32-band binaural spatializer + Shaper additive synth · LED=Shaper active</p>
-
+    <p class="subtitle">32-band binaural + Shaper · LED=active · Shape=timbre · SC=side-chain</p>
     <div class="spectrum" id="spectrum"></div>
 
     <div class="header">
-        <div class="pill">f1 = <b id="f1-val">40.0</b> Hz</div>
-        <div class="pill">Shaper = <b id="active-count">0</b> / 32</div>
-        <div class="pill">WS <span id="conn" class="conn-bad">disconnected</span></div>
+        <div class="pill">f1=<b id="f1-val">40.0</b>Hz</div>
+        <div class="pill">voices=<b id="active-count">0</b>/32</div>
+        <div class="pill">strum=<b id="strum-val">0.50</b>s</div>
+        <div class="pill">WS <span id="conn" class="conn-bad">off</span></div>
         <button class="action" onclick="panic()">PANIC</button>
         <button class="action" style="border-color:#3498db; color:#3498db;" onclick="resetBeacon()">RESET</button>
     </div>
 
-    <!-- Global controls -->
+    <!-- Global controls: Mix + Envelope + Side-chain + LFO -->
     <div class="mix-section">
         <div class="mix-grid">
-            <div class="mix-param">
-                <label class="section-label" style="color:#1abc9c;">Beacon Master</label>
+            <div class="mix-param"><label class="sl" style="color:#1abc9c;">Beacon M</label>
                 <input type="range" min="0" max="3" step="0.05" value="0.9" id="master"
-                       oninput="sendMaster(this.value); showVal('vmaster', parseFloat(this.value).toFixed(2))">
-                <div class="val" id="vmaster" style="font-size:0.65rem;">0.90</div>
-            </div>
-            <div class="mix-param">
-                <label class="section-label" style="color:#e74c3c;">Shaper Master</label>
+                       oninput="sendMaster(this.value); showVal('vmaster',parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vmaster">0.90</div></div>
+            <div class="mix-param"><label class="sl" style="color:#e74c3c;">Shaper M</label>
                 <input type="range" min="0" max="1" step="0.01" value="0.8" id="shaper-master"
-                       oninput="sendShaperGlobal('master', this.value); showVal('vsmaster', parseFloat(this.value).toFixed(2))">
-                <div class="val" id="vsmaster" style="font-size:0.65rem;">0.80</div>
-            </div>
-            <div class="mix-param">
-                <label class="section-label" style="color:#e67e22;">Attack (s)</label>
-                <input type="range" min="0.001" max="2.0" step="0.001" value="0.01" id="attack"
-                       oninput="sendShaperGlobal('attack', this.value); showVal('vattack', parseFloat(this.value).toFixed(3))">
-                <div class="val" id="vattack" style="font-size:0.65rem;">0.010</div>
-            </div>
-            <div class="mix-param">
-                <label class="section-label" style="color:#9b59b6;">Release (s)</label>
-                <input type="range" min="0.01" max="3.0" step="0.01" value="0.15" id="release"
-                       oninput="sendShaperGlobal('release', this.value); showVal('vrelease', parseFloat(this.value).toFixed(2))">
-                <div class="val" id="vrelease" style="font-size:0.65rem;">0.15</div>
-            </div>
-            <div class="mix-param">
-                <label class="section-label" style="color:#3498db;">f1 (Hz)</label>
+                       oninput="sendGlobal('master',this.value); showVal('vsmaster',parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vsmaster">0.80</div></div>
+            <div class="mix-param"><label class="sl" style="color:#e67e22;">Attack</label>
+                <input type="range" min="0.001" max="2" step="0.001" value="0.01" id="attack"
+                       oninput="sendGlobal('attack',this.value); showVal('vattack',parseFloat(this.value).toFixed(3))">
+                <div class="val" id="vattack">0.010</div></div>
+            <div class="mix-param"><label class="sl" style="color:#9b59b6;">Release</label>
+                <input type="range" min="0.01" max="3" step="0.01" value="0.15" id="release"
+                       oninput="sendGlobal('release',this.value); showVal('vrelease',parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vrelease">0.15</div></div>
+            <div class="mix-param"><label class="sl" style="color:#3498db;">f1</label>
                 <input type="range" min="20" max="200" step="1" value="40" id="f1-slider"
-                       oninput="sendF1(this.value); showVal('vf1', this.value + ' Hz')">
-                <div class="val" id="vf1" style="font-size:0.65rem;">40 Hz</div>
-            </div>
-            <div class="mix-param">
-                <label class="section-label" style="color:#3498db;">vsrate</label>
-                <input type="range" min="0.25" max="2.0" step="0.01" value="1.0" id="vsrate-slider"
-                       oninput="sendVsrate(this.value); showVal('vvsrate', parseFloat(this.value).toFixed(2))">
-                <div class="val" id="vvsrate" style="font-size:0.65rem;">1.00</div>
+                       oninput="sendF1(this.value); showVal('vf1',this.value+'Hz')">
+                <div class="val" id="vf1">40Hz</div></div>
+            <div class="mix-param"><label class="sl" style="color:#3498db;">vsrate</label>
+                <input type="range" min="0.25" max="2" step="0.01" value="1" id="vsrate-slider"
+                       oninput="sendVsrate(this.value); showVal('vvsrate',parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vvsrate">1.00</div></div>
+        </div>
+        <!-- Side-chain + LFO row -->
+        <div class="lfo-section">
+            <div class="mix-grid">
+                <div class="mix-param"><label class="sl" style="color:#f39c12;">Side-chain</label>
+                    <input type="range" min="-1" max="1" step="0.01" value="0" id="sidechain"
+                           oninput="sendGlobal('sidechain',this.value); showVal('vsc',parseFloat(this.value).toFixed(2))">
+                    <div class="val" id="vsc">0.00</div></div>
+                <div class="mix-param"><label class="sl" style="color:#1abc9c;">LFO Amt</label>
+                    <input type="range" min="0" max="1" step="0.01" value="0" id="lfo-amount"
+                           oninput="sendGlobal('lfo_amount',this.value); showVal('vlfoa',parseFloat(this.value).toFixed(2))">
+                    <div class="val" id="vlfoa">0.00</div></div>
+                <div class="mix-param"><label class="sl" style="color:#1abc9c;">LFO ÷</label>
+                    <input type="range" min="1" max="16" step="1" value="1" id="lfo-div"
+                           oninput="sendGlobal('lfo_rate_divisor',this.value); showVal('vlfod',this.value)">
+                    <div class="val" id="vlfod">1</div></div>
+                <div class="mix-param"><label class="sl" style="color:#1abc9c;">LFO wav</label>
+                    <select id="lfo-wav" onchange="sendLfoWaveform(this.value)">
+                        <option value="sine">sine</option>
+                        <option value="triangle">triangle</option>
+                        <option value="saw">saw</option>
+                        <option value="square">square</option>
+                        <option value="samplehold">s&h</option>
+                    </select></div>
+                <div class="mix-param"><label class="sl" style="color:#888;">Beacon lvl</label>
+                    <div class="val" id="vbeacon-lvl" style="font-size:0.7rem; color:#f39c12;">0.00</div></div>
             </div>
         </div>
     </div>
@@ -190,307 +166,223 @@
 
     <!-- Presets -->
     <div class="mix-section">
-        <h2 style="font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:2px; margin-bottom:10px;">Presets</h2>
-        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; align-items:end;">
-            <div>
-                <label style="display:block; font-size:0.55rem; color:#888; text-transform:uppercase; margin-bottom:4px;">Save as</label>
-                <input type="text" id="save-name" placeholder="my-preset"
-                       style="width:100%; background:#0d0d14; border:1px solid #2a2a3e; color:#e0e0e0; padding:6px 8px; border-radius:4px; font-size:0.8rem;">
-                <button onclick="savePreset()" style="margin-top:6px; width:100%; padding:6px; border:1px solid #2ecc71; color:#2ecc71; background:transparent; border-radius:4px; cursor:pointer; font-size:0.7rem; font-weight:600; text-transform:uppercase;">Save</button>
-            </div>
-            <div>
-                <label style="display:block; font-size:0.55rem; color:#888; text-transform:uppercase; margin-bottom:4px;">Load preset</label>
-                <select id="load-select" style="width:100%; background:#0d0d14; border:1px solid #2a2a3e; color:#e0e0e0; padding:6px 8px; border-radius:4px; font-size:0.8rem;">
-                    <option value="">-- select --</option>
-                </select>
-                <button onclick="loadPreset()" style="margin-top:6px; width:100%; padding:6px; border:1px solid #3498db; color:#3498db; background:transparent; border-radius:4px; cursor:pointer; font-size:0.7rem; font-weight:600; text-transform:uppercase;">Load</button>
-            </div>
-            <div>
-                <label style="display:block; font-size:0.55rem; color:#888; text-transform:uppercase; margin-bottom:4px;">Status</label>
-                <div id="preset-status" style="padding:8px; color:#888; font-size:0.75rem;">Ready</div>
-            </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; align-items:end;">
+            <div><label style="display:block;font-size:0.5rem;color:#888;text-transform:uppercase;margin-bottom:2px;">Save</label>
+                <input type="text" id="save-name" placeholder="name"
+                       style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;">
+                <button onclick="savePreset()" style="margin-top:4px;width:100%;padding:4px;border:1px solid #2ecc71;color:#2ecc71;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">SAVE</button></div>
+            <div><label style="display:block;font-size:0.5rem;color:#888;text-transform:uppercase;margin-bottom:2px;">Load</label>
+                <select id="load-select" style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;"><option value="">--</option></select>
+                <button onclick="loadPreset()" style="margin-top:4px;width:100%;padding:4px;border:1px solid #3498db;color:#3498db;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">LOAD</button></div>
+            <div><div id="preset-status" style="padding:6px;color:#888;font-size:0.65rem;">Ready</div></div>
         </div>
     </div>
 
 <script>
-const N_BANDS = 32;
+const N = 32;
 const grid = document.getElementById('grid');
 const spectrum = document.getElementById('spectrum');
-const f1El = document.getElementById('f1-val');
-const activeEl = document.getElementById('active-count');
-const connEl = document.getElementById('conn');
 
-// Build spectrum bars
-for (let i = 0; i < N_BANDS; i++) {
-  const bar = document.createElement('div');
-  bar.className = 'spectrum-bar';
-  bar.id = 'spec' + (i + 1);
-  bar.style.background = '#3498db';
-  bar.style.height = '10%';
-  spectrum.appendChild(bar);
+function showVal(id,t) { const e=document.getElementById(id); if(e) e.textContent=t; }
+
+// Spectrum
+for (let i=0;i<N;i++) {
+  const b=document.createElement('div'); b.className='spectrum-bar'; b.id='spec'+(i+1);
+  b.style.background='#3498db'; b.style.height='10%'; spectrum.appendChild(b);
 }
 
-// Helper: update display value
-function showVal(id, text) {
-  const el = document.getElementById(id);
-  if (el) el.textContent = text;
-}
-
-// Build 32 cards — split: SPATIALIZER on top, SHAPER on bottom
-const cards = [];
-const scState = { on: {}, gain: {}, az: {}, dist: {}, q: {} };
-for (let n = 1; n <= N_BANDS; n++) {
-  const card = document.createElement('div');
-  card.className = 'band';
-  card.dataset.n = n;
-  card.innerHTML = `
+// Cards: SPATIALIZER (horizontal gain) + SHAPER (gain, pan, phase) + SHAPE + LFO targets
+const cards=[];
+const scState={on:{},gain:{},az:{},dist:{},q:{}};
+for (let n=1;n<=N;n++) {
+  const c=document.createElement('div'); c.className='band'; c.dataset.n=n;
+  c.innerHTML=`
     <div class="led" data-role="led"></div>
-    <div class="band-label">H${String(n).padStart(2, '0')}</div>
-    <div class="band-freq">${(40 * n).toFixed(0)} Hz</div>
-    <div class="divider" style="color:#1abc9c;">SPATIALIZER</div>
-    <div class="fader-container" style="color: #1abc9c;">
-      <input type="range" orient="vertical" min="0" max="3" step="0.05" value="0.8"
-             id="g${n}" oninput="sendBeaconParam('gain', ${n}, this.value); showVal('gv${n}', parseFloat(this.value).toFixed(2))">
-    </div>
-    <div class="val" id="gv${n}" style="font-size:0.5rem; text-align:center;">0.80</div>
-    <div class="param"><label>Az</label>
+    <div class="band-label">H${String(n).padStart(2,'0')}</div>
+    <div class="band-freq">${(40*n).toFixed(0)}Hz</div>
+    <div class="divider" style="color:#1abc9c;">SPAT</div>
+    <div class="param-row" style="color:#1abc9c;"><label>G</label>
+      <input type="range" min="0" max="3" step="0.05" value="0.8" id="g${n}"
+             oninput="sendB('gain',${n},this.value);showVal('gv${n}',parseFloat(this.value).toFixed(2))">
+      <span class="val" id="gv${n}">0.80</span></div>
+    <div class="param-row"><label>Az</label>
       <input type="range" min="-180" max="180" step="1" value="0" id="a${n}"
-             oninput="sendBeaconParam('az', ${n}, this.value); showVal('av${n}', Math.round(this.value) + '\u00B0')">
+             oninput="sendB('az',${n},this.value);showVal('av${n}',Math.round(this.value)+'\u00B0')">
       <span class="val" id="av${n}">0\u00B0</span></div>
-    <div class="param"><label>Dst</label>
-      <input type="range" min="0" max="10" step="0.1" value="2.0" id="d${n}"
-             oninput="sendBeaconParam('dist', ${n}, this.value); showVal('dv${n}', parseFloat(this.value).toFixed(1))">
+    <div class="param-row"><label>Ds</label>
+      <input type="range" min="0" max="10" step="0.1" value="2" id="d${n}"
+             oninput="sendB('dist',${n},this.value);showVal('dv${n}',parseFloat(this.value).toFixed(1))">
       <span class="val" id="dv${n}">2.0</span></div>
-    <div class="param"><label>Q</label>
-      <input type="range" min="0.01" max="2.0" step="0.01" value="0.5" id="q${n}"
-             oninput="sendBeaconParam('q', ${n}, this.value); showVal('qv${n}', parseFloat(this.value).toFixed(2))">
+    <div class="param-row"><label>Q</label>
+      <input type="range" min="0.01" max="2" step="0.01" value="0.5" id="q${n}"
+             oninput="sendB('q',${n},this.value);showVal('qv${n}',parseFloat(this.value).toFixed(2))">
       <span class="val" id="qv${n}">0.50</span></div>
-    <button class="solo-btn on" id="on${n}" onclick="toggleOn(${n}, this)">ON</button>
+    <button class="solo-btn on" id="on${n}" onclick="toggleOn(${n},this)">ON</button>
     <div class="divider" style="color:#e74c3c;">SHAPER</div>
-    <div class="param"><label>Gain</label>
+    <div class="param-row" style="color:#e74c3c;"><label>Gn</label>
       <input type="range" min="0" max="1" step="0.01" value="0.6" id="sg${n}"
-             oninput="sendShaperParam('gain', ${n}, this.value); showVal('sgv${n}', parseFloat(this.value).toFixed(2))">
+             oninput="sendS('gain',${n},this.value);showVal('sgv${n}',parseFloat(this.value).toFixed(2))">
       <span class="val" id="sgv${n}">0.60</span></div>
-    <div class="param"><label>Pan</label>
-      <input type="range" min="-1" max="1" step="0.01" value="0.0" id="sp${n}"
-             oninput="sendShaperParam('pan', ${n}, this.value); showVal('spv${n}', parseFloat(this.value).toFixed(2))">
+    <div class="param-row"><label>Pn</label>
+      <input type="range" min="-1" max="1" step="0.01" value="0" id="sp${n}"
+             oninput="sendS('pan',${n},this.value);showVal('spv${n}',parseFloat(this.value).toFixed(2))">
       <span class="val" id="spv${n}">0.00</span></div>
-    <div class="param"><label>Ph</label>
+    <div class="param-row"><label>Ph</label>
       <input type="range" min="0" max="360" step="1" value="0" id="sph${n}"
-             oninput="sendShaperParam('phase_deg', ${n}, this.value); showVal('sphv${n}', Math.round(this.value) + '\u00B0')">
+             oninput="sendS('phase_deg',${n},this.value);showVal('sphv${n}',Math.round(this.value)+'\u00B0')">
       <span class="val" id="sphv${n}">0\u00B0</span></div>
-  `;
-  grid.appendChild(card);
-  cards.push(card);
-  scState.on[n] = 1; scState.gain[n] = 0.8; scState.az[n] = 0; scState.dist[n] = 2.0; scState.q[n] = 0.5;
+    <div class="divider" style="color:#f39c12;">TIMBRE</div>
+    <div class="param-row" style="color:#f39c12;"><label>Shp</label>
+      <input type="range" min="0" max="1" step="0.01" value="0" id="ssh${n}"
+             oninput="sendS('shape',${n},this.value);showVal('sshv${n}',parseFloat(this.value).toFixed(2))">
+      <span class="val" id="sshv${n}">0.00</span></div>
+    <div class="divider" style="color:#1abc9c;">LFO</div>
+    <div class="param-row"><label>G</label>
+      <input type="range" min="0" max="1" step="0.01" value="0" id="slg${n}"
+             oninput="sendS('lfo_gain',${n},this.value);showVal('slgv${n}',parseFloat(this.value).toFixed(2))">
+      <span class="val" id="slgv${n}">0.00</span></div>
+    <div class="param-row"><label>P</label>
+      <input type="range" min="0" max="1" step="0.01" value="0" id="slp${n}"
+             oninput="sendS('lfo_pan',${n},this.value);showVal('slpv${n}',parseFloat(this.value).toFixed(2))">
+      <span class="val" id="slpv${n}">0.00</span></div>
+    <div class="param-row"><label>Ph</label>
+      <input type="range" min="0" max="1" step="0.01" value="0" id="slph${n}"
+             oninput="sendS('lfo_phase',${n},this.value);showVal('slphv${n}',parseFloat(this.value).toFixed(2))">
+      <span class="val" id="slphv${n}">0.00</span></div>`;
+  grid.appendChild(c); cards.push(c);
+  scState.on[n]=1;scState.gain[n]=0.8;scState.az[n]=0;scState.dist[n]=2;scState.q[n]=0.5;
 }
 
-// ─── Shaper state from WebSocket ──────────────────────────────────────
-let shaperState = { f1: 40.0, master_gain: 0.8, voices: {} };
+let shaperState={f1:40,master_gain:0.8,voices:{}};
 
 function applyShaperState(s) {
-  shaperState = s;
-  f1El.textContent = (s.f1 || 40).toFixed(1);
-  let active = 0;
-  for (let n = 1; n <= N_BANDS; n++) {
-    const v = s.voices[String(n)] || {};
-    const isShaperActive = !!v.active;
-    if (isShaperActive) active++;
-    const card = cards[n - 1];
-    const led = card.querySelector('[data-role="led"]');
-    led.classList.toggle('on', isShaperActive);
+  shaperState=s;
+  document.getElementById('f1-val').textContent=(s.f1||40).toFixed(1);
+  document.getElementById('strum-val').textContent=(s.strum_period_s||0.5).toFixed(2);
+  document.getElementById('vbeacon-lvl').textContent=(s.beacon_level||0).toFixed(2);
+  let active=0;
+  for (let n=1;n<=N;n++) {
+    const v=s.voices[String(n)]||{};
+    if (v.active) active++;
+    const card=cards[n-1];
+    card.querySelector('[data-role="led"]').classList.toggle('on',!!v.active);
 
-    // Update shaper sliders from state (only if not focused)
-    ['sg', 'sp', 'sph'].forEach(prefix => {
-      const el = document.getElementById(prefix + n);
-      if (el && document.activeElement !== el) {
-        if (prefix === 'sg') el.value = v.gain !== undefined ? v.gain : 0.6;
-        if (prefix === 'sp') el.value = v.pan !== undefined ? v.pan : 0.0;
-        if (prefix === 'sph') el.value = v.phase_deg !== undefined ? v.phase_deg : 0;
-      }
-    });
+    // Update sliders from state (if not focused)
+    const upd=(id,val)=>{const e=document.getElementById(id);if(e&&document.activeElement!==e)e.value=val;};
+    upd('sg'+n,v.gain!==undefined?v.gain:0.6); showVal('sgv'+n,(v.gain!==undefined?v.gain:0.6).toFixed(2));
+    upd('sp'+n,v.pan!==undefined?v.pan:0); showVal('spv'+n,(v.pan!==undefined?v.pan:0).toFixed(2));
+    upd('sph'+n,v.phase_deg!==undefined?v.phase_deg:0); showVal('sphv'+n,(v.phase_deg!==undefined?v.phase_deg:0)+'\u00B0');
+    upd('ssh'+n,v.shape!==undefined?v.shape:0); showVal('sshv'+n,(v.shape!==undefined?v.shape:0).toFixed(2));
+    upd('slg'+n,v.lfo_gain!==undefined?v.lfo_gain:0); showVal('slgv'+n,(v.lfo_gain!==undefined?v.lfo_gain:0).toFixed(2));
+    upd('slp'+n,v.lfo_pan!==undefined?v.lfo_pan:0); showVal('slpv'+n,(v.lfo_pan!==undefined?v.lfo_pan:0).toFixed(2));
+    upd('slph'+n,v.lfo_phase!==undefined?v.lfo_phase:0); showVal('slphv'+n,(v.lfo_phase!==undefined?v.lfo_phase:0).toFixed(2));
 
-    // Spectrum
-    const spec = document.getElementById('spec' + n);
+    const spec=document.getElementById('spec'+n);
     if (spec) {
-      const gain = (v.gain !== undefined ? v.gain : 0.5) * (isShaperActive ? 1 : 0.3);
-      spec.style.height = Math.max(10, gain * 100) + '%';
-      spec.style.background = isShaperActive ? '#e74c3c' : '#3498db';
+      const gain=(v.gain!==undefined?v.gain:0.5)*(v.active?1:0.3);
+      spec.style.height=Math.max(8,gain*100)+'%';
+      spec.style.background=v.active?'#e74c3c':'#3498db';
     }
   }
-  activeEl.textContent = active;
-
-  // Update global controls from state (if not focused)
-  if (s.master_gain !== undefined) {
-    const sm = document.getElementById('shaper-master');
-    if (sm && document.activeElement !== sm) sm.value = s.master_gain;
-    showVal('vsmaster', s.master_gain.toFixed(2));
-  }
-  if (s.global_attack_s !== undefined) {
-    const at = document.getElementById('attack');
-    if (at && document.activeElement !== at) at.value = s.global_attack_s;
-    showVal('vattack', s.global_attack_s.toFixed(3));
-  }
-  if (s.global_release_s !== undefined) {
-    const rl = document.getElementById('release');
-    if (rl && document.activeElement !== rl) rl.value = s.global_release_s;
-    showVal('vrelease', s.global_release_s.toFixed(2));
-  }
+  document.getElementById('active-count').textContent=active;
+  // Global controls
+  const gu=(id,val)=>upd(id,val);
+  gu('shaper-master',s.master_gain); showVal('vsmaster',(s.master_gain||0.8).toFixed(2));
+  gu('attack',s.global_attack_s); showVal('vattack',(s.global_attack_s||0.01).toFixed(3));
+  gu('release',s.global_release_s); showVal('vrelease',(s.global_release_s||0.15).toFixed(2));
+  gu('sidechain',s.sidechain_amount); showVal('vsc',(s.sidechain_amount||0).toFixed(2));
+  gu('lfo-amount',s.lfo_amount); showVal('vlfoa',(s.lfo_amount||0).toFixed(2));
+  gu('lfo-div',s.lfo_rate_divisor); showVal('vlfod',s.lfo_rate_divisor||1);
+  document.getElementById('lfo-wav').value=s.lfo_waveform||'sine';
 }
 
-// ─── Beacon SC state (client-side cache, updated from user input) ─────
 function applyScState() {
-  for (let n = 1; n <= N_BANDS; n++) {
-    const card = cards[n - 1];
-    const isOn = scState.on[n] > 0;
-    card.classList.toggle('sc-active', isOn);
-    const btn = card.querySelector('#on' + n);
-    if (isOn) { btn.classList.add('on'); btn.textContent = 'ON'; }
-    else { btn.classList.remove('on'); btn.textContent = 'OFF'; }
-
-    const gIn = document.getElementById('g' + n);
-    if (gIn && document.activeElement !== gIn) { gIn.value = scState.gain[n]; showVal('gv'+n, scState.gain[n].toFixed(2)); }
-    const aIn = document.getElementById('a' + n);
-    if (aIn && document.activeElement !== aIn) { aIn.value = scState.az[n]; showVal('av'+n, Math.round(scState.az[n])+'\u00B0'); }
-    const dIn = document.getElementById('d' + n);
-    if (dIn && document.activeElement !== dIn) { dIn.value = scState.dist[n]; showVal('dv'+n, scState.dist[n].toFixed(1)); }
-    const qIn = document.getElementById('q' + n);
-    if (qIn && document.activeElement !== qIn) { qIn.value = scState.q[n]; showVal('qv'+n, scState.q[n].toFixed(2)); }
+  for (let n=1;n<=N;n++) {
+    const card=cards[n-1],isOn=scState.on[n]>0;
+    card.classList.toggle('sc-active',isOn);
+    const btn=card.querySelector('#on'+n);
+    if (isOn){btn.classList.add('on');btn.textContent='ON';}
+    else{btn.classList.remove('on');btn.textContent='OFF';}
+    const u=(id,val)=>{const e=document.getElementById(id);if(e&&document.activeElement!==e)e.value=val;};
+    u('g'+n,scState.gain[n]);showVal('gv'+n,scState.gain[n].toFixed(2));
+    u('a'+n,scState.az[n]);showVal('av'+n,Math.round(scState.az[n])+'\u00B0');
+    u('d'+n,scState.dist[n]);showVal('dv'+n,scState.dist[n].toFixed(1));
+    u('q'+n,scState.q[n]);showVal('qv'+n,scState.q[n].toFixed(2));
   }
 }
 
-// ─── API helpers ──────────────────────────────────────────────────────
-async function api(path, method='GET', body=null) {
-  const opts = { method, headers: {'Content-Type':'application/json'} };
-  if (body) opts.body = JSON.stringify(body);
-  try { const r = await fetch(path, opts); return await r.json(); }
-  catch(e) { return null; }
+async function api(p,m='GET',b=null){
+  const o={method:m,headers:{'Content-Type':'application/json'}};
+  if(b)o.body=JSON.stringify(b);
+  try{const r=await fetch(p,o);return await r.json();}catch(e){return null;}
 }
+function sendB(param,n,v){scState[param][n]=parseFloat(v);api('/api/harmonic/'+n+'/'+param,'POST',{[param]:parseFloat(v)});}
+function sendS(param,n,v){api('/api/shaper/'+n+'/'+param,'POST',{[param]:parseFloat(v)});}
+function sendGlobal(param,v){const f=parseFloat(v);api('/api/shaper/global/'+param,'POST',{[param]:f});}
+function sendLfoWaveform(v){api('/api/shaper/global/lfo_waveform','POST',{lfo_waveform:v});}
+function sendMaster(v){api('/api/master','POST',{master:parseFloat(v)});}
+function sendF1(v){api('/api/f1','POST',{f1:parseFloat(v)});}
+function sendVsrate(v){api('/api/vsource','POST',{rate:parseFloat(v)});}
+function toggleOn(n,btn){const v=scState.on[n]?0:1;scState.on[n]=v;applyScState();api('/api/harmonic/'+n+'/on','POST',{on:v===1});}
+function panic(){api('/api/panic','POST');}
+function resetBeacon(){api('/api/reset','POST');for(let n=1;n<=N;n++){scState.on[n]=1;scState.gain[n]=0.8;scState.az[n]=0;scState.dist[n]=2;scState.q[n]=0.5;}applyScState();}
 
-// Beacon spatializer params → /api/harmonic/{n}/{param} → SC
-function sendBeaconParam(param, n, value) {
-  const f = parseFloat(value);
-  scState[param][n] = f;
-  api(`/api/harmonic/${n}/${param}`, 'POST', {[param]: f});
+// Presets
+async function gatherScState(){
+  const bands=[];
+  for(let n=1;n<=N;n++) bands.push({n,gain:scState.gain[n],az:scState.az[n],dist:scState.dist[n],q:scState.q[n],on:scState.on[n]});
+  return {bands,master:parseFloat(document.getElementById('master').value)};
 }
-
-// Shaper per-voice params → /api/shaper/{n}/{param}
-function sendShaperParam(param, n, value) {
-  api(`/api/shaper/${n}/${param}`, 'POST', {[param]: parseFloat(value)});
-}
-
-// Shaper global params → /api/shaper/global/{param}
-function sendShaperGlobal(param, value) {
-  api(`/api/shaper/global/${param}`, 'POST', {[param]: parseFloat(value)});
-}
-
-function sendMaster(value) {
-  api('/api/master', 'POST', {master: parseFloat(value)});
-}
-function sendF1(value) {
-  api('/api/f1', 'POST', {f1: parseFloat(value)});
-}
-function sendVsrate(value) {
-  api('/api/vsource', 'POST', {rate: parseFloat(value)});
-}
-function toggleOn(n, btn) {
-  const newOn = scState.on[n] ? 0 : 1;
-  scState.on[n] = newOn;
-  applyScState();
-  api(`/api/harmonic/${n}/on`, 'POST', {on: newOn === 1});
-}
-function panic() { api('/api/panic', 'POST'); }
-function resetBeacon() {
-  api('/api/reset', 'POST');
-  for (let n=1; n<=N_BANDS; n++) {
-    scState.on[n]=1; scState.gain[n]=0.8; scState.az[n]=0; scState.dist[n]=2.0; scState.q[n]=0.5;
+async function applyScStateFromPreset(state){
+  for(const b of(state.bands||[])){
+    const n=b.n;if(n<1||n>32)continue;
+    scState.gain[n]=b.gain;scState.az[n]=b.az;scState.dist[n]=b.dist;scState.q[n]=b.q!==undefined?b.q:0.5;scState.on[n]=b.on!==undefined?b.on:1;
+    api('/api/harmonic/'+n+'/gain','POST',{gain:b.gain});
+    api('/api/harmonic/'+n+'/az','POST',{az:b.az});
+    api('/api/harmonic/'+n+'/dist','POST',{dist:b.dist});
+    api('/api/harmonic/'+n+'/on','POST',{on:b.on===1});
   }
+  if(state.master!==undefined){document.getElementById('master').value=state.master;api('/api/master','POST',{master:state.master});}
   applyScState();
 }
-
-// ─── Presets ──────────────────────────────────────────────────────────
-async function gatherScState() {
-  const bands = [];
-  for (let n = 1; n <= N_BANDS; n++) {
-    bands.push({ n, gain: scState.gain[n], az: scState.az[n], dist: scState.dist[n], q: scState.q[n], on: scState.on[n] });
-  }
-  const master = parseFloat(document.getElementById('master').value);
-  return { bands, master };
+function setPresetStatus(msg,color){const e=document.getElementById('preset-status');if(e){e.textContent=msg;e.style.color=color||'#888';}}
+async function savePreset(){
+  const name=document.getElementById('save-name').value.trim();
+  if(!name){setPresetStatus('Enter name','#e67e22');return;}
+  const state=await gatherScState();
+  const r=await api('/api/presets/save','POST',{name,state});
+  if(r&&r.ok){setPresetStatus('Saved: '+r.name,'#2ecc71');await loadPresetList();}
+  else{setPresetStatus('Error: '+(r&&r.error),'#e74c3c');}
+}
+async function loadPreset(){
+  const name=document.getElementById('load-select').value;
+  if(!name){setPresetStatus('Select preset','#e67e22');return;}
+  setPresetStatus('Loading...','#3498db');
+  const r=await api('/api/presets/load','POST',{name});
+  if(r&&r.ok){await applyScStateFromPreset(r.state);setPresetStatus('Loaded: '+name,'#2ecc71');}
+  else{setPresetStatus('Error: '+(r&&r.error),'#e74c3c');}
+}
+async function loadPresetList(){
+  const r=await api('/api/presets');
+  if(!r||!r.ok)return;
+  const sel=document.getElementById('load-select');
+  sel.innerHTML='<option value="">--</option>';
+  for(const name of r.presets) sel.innerHTML+='<option value="'+name+'">'+name+'</option>';
 }
 
-async function applyScStateFromPreset(state) {
-  for (const band of (state.bands || [])) {
-    const n = band.n;
-    if (n < 1 || n > 32) continue;
-    scState.gain[n] = band.gain;
-    scState.az[n] = band.az;
-    scState.dist[n] = band.dist;
-    scState.q[n] = band.q !== undefined ? band.q : 0.5;
-    scState.on[n] = band.on !== undefined ? band.on : 1;
-    api(`/api/harmonic/${n}/gain`, 'POST', {gain: band.gain});
-    api(`/api/harmonic/${n}/az`, 'POST', {az: band.az});
-    api(`/api/harmonic/${n}/dist`, 'POST', {dist: band.dist});
-    api(`/api/harmonic/${n}/on`, 'POST', {on: band.on === 1});
-  }
-  if (state.master !== undefined) {
-    document.getElementById('master').value = state.master;
-    api('/api/master', 'POST', {master: state.master});
-  }
-  applyScState();
-}
-
-function setPresetStatus(msg, color) {
-  const el = document.getElementById('preset-status');
-  if (el) { el.textContent = msg; el.style.color = color || '#888'; }
-}
-
-async function savePreset() {
-  const nameInput = document.getElementById('save-name');
-  const name = nameInput.value.trim();
-  if (!name) { setPresetStatus('Enter a name', '#e67e22'); return; }
-  const state = await gatherScState();
-  const result = await api('/api/presets/save', 'POST', {name, state});
-  if (result && result.ok) { setPresetStatus('Saved: ' + result.name, '#2ecc71'); await loadPresetList(); }
-  else { setPresetStatus('Error: ' + (result && result.error), '#e74c3c'); }
-}
-
-async function loadPreset() {
-  const sel = document.getElementById('load-select');
-  const name = sel.value;
-  if (!name) { setPresetStatus('Select a preset', '#e67e22'); return; }
-  setPresetStatus('Loading...', '#3498db');
-  const result = await api('/api/presets/load', 'POST', {name});
-  if (result && result.ok) {
-    await applyScStateFromPreset(result.state);
-    setPresetStatus('Loaded: ' + name, '#2ecc71');
-  } else {
-    setPresetStatus('Error: ' + (result && result.error), '#e74c3c');
-  }
-}
-
-async function loadPresetList() {
-  const result = await api('/api/presets');
-  if (!result || !result.ok) return;
-  const sel = document.getElementById('load-select');
-  sel.innerHTML = '<option value="">-- select --</option>';
-  for (const name of result.presets) {
-    sel.innerHTML += `<option value="${name}">${name}</option>`;
-  }
-}
-
-// ─── WebSocket ────────────────────────────────────────────────────────
-function connect() {
-  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { connEl.textContent = 'connected'; connEl.className = 'conn-ok'; };
-  ws.onclose = () => { connEl.textContent = 'disconnected'; connEl.className = 'conn-bad'; setTimeout(connect, 1000); };
-  ws.onerror = () => ws.close();
-  ws.onmessage = (ev) => { try { applyShaperState(JSON.parse(ev.data)); } catch(e) { console.error(e); } };
+// WebSocket
+function connect(){
+  const proto=location.protocol==='https:'?'wss':'ws';
+  const ws=new WebSocket(proto+'://'+location.host+'/ws');
+  ws.onopen=()=>{document.getElementById('conn').textContent='on';document.getElementById('conn').className='conn-ok';};
+  ws.onclose=()=>{document.getElementById('conn').textContent='off';document.getElementById('conn').className='conn-bad';setTimeout(connect,1000);};
+  ws.onerror=()=>ws.close();
+  ws.onmessage=(ev)=>{try{applyShaperState(JSON.parse(ev.data));}catch(e){console.error(e);}};
 }
 connect();
 applyScState();
 loadPresetList();
-api('/api/state').then(s => { if (s) applyShaperState(s); }).catch(e => console.error(e));
+api('/api/state').then(s=>{if(s)applyShaperState(s);}).catch(e=>console.error(e));
 </script>
 </body>
 </html>

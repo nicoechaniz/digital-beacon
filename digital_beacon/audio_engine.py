@@ -112,6 +112,10 @@ class AudioEngine:
         n_active = len(active_ns)
         norm = 1.0 / (n_active ** 0.5) if n_active > 0 else 1.0
 
+        # ── LFO: advance and get current value ────────────────────────
+        lfo_val = self._store.advance_lfo(dt)  # -1..+1
+        lfo_amount = self._store._lfo_amount     # global 0..1
+
         mix = np.zeros((frames, 2), dtype=np.float32)
 
         to_prune = []
@@ -128,11 +132,9 @@ class AudioEngine:
 
             # Compute envelope ramp
             if target_env > current_env:
-                # Attack phase
-                rate = 1.0 / max(attack_s, 0.0001)  # avoid div by zero
+                rate = 1.0 / max(attack_s, 0.0001)
                 new_env = min(target_env, current_env + rate * dt)
             elif target_env < current_env:
-                # Release phase
                 rate = 1.0 / max(release_s, 0.0001)
                 new_env = max(target_env, current_env - rate * dt)
             else:
@@ -140,7 +142,6 @@ class AudioEngine:
 
             state["env"] = new_env
 
-            # Prune fully released voices
             if not params.active and new_env <= 0.0:
                 to_prune.append(n)
                 continue
@@ -148,25 +149,47 @@ class AudioEngine:
             if new_env <= 0.0:
                 continue
 
-            # Generate sine
+            # ── LFO modulation per voice ──────────────────────────────
+            lfo_mod = lfo_val * lfo_amount
+            mod_gain = params.gain * (1.0 + params.lfo_gain * lfo_mod)
+            mod_pan = params.pan + params.lfo_pan * lfo_mod * 2.0  # ±2 range
+            mod_pan = max(-1.0, min(1.0, mod_pan))
+            mod_phase = params.phase + params.lfo_phase * lfo_mod * np.pi
+
+            # ── Generate sine ─────────────────────────────────────────
             t = np.arange(frames, dtype=np.float64) / self._sample_rate
             start_phase = state["phase"]
             carrier_phases = 2.0 * np.pi * params.freq * t + start_phase
-            sine = np.sin(carrier_phases + params.phase).astype(np.float32)
-            sine *= float(params.gain) * norm * new_env
+            sine = np.sin(carrier_phases + mod_phase).astype(np.float32)
+
+            # ── Waveshaper (didgeridoo/vocal timbre) ──────────────────
+            shape = params.shape
+            if shape > 0.0:
+                drive = 1.0 + shape * 4.0
+                sine = np.tanh(sine * drive) / np.tanh(drive)
+
+            sine *= float(mod_gain) * norm * new_env
             state["phase"] = (
                 carrier_phases[-1] + 2.0 * np.pi * params.freq / self._sample_rate
             ) % (2.0 * np.pi)
 
-            angle = (float(params.pan) + 1.0) * (np.pi / 4.0)
+            angle = (float(mod_pan) + 1.0) * (np.pi / 4.0)
             mix[:, 0] += sine * float(np.cos(angle))
             mix[:, 1] += sine * float(np.sin(angle))
 
         for n in to_prune:
             del self._voice_state[n]
 
-        # Master gain + soft limiter
-        mix *= self._store.get_master_gain()
+        # ── Side-chain: beacon envelope → shaper master modulation ────
+        beacon_level = self._store.get_beacon_level()
+        sidechain_amount = self._store._sidechain_amount
+        if sidechain_amount >= 0:
+            sc_factor = (1.0 - sidechain_amount) + sidechain_amount * beacon_level
+        else:
+            sc_factor = 1.0 + abs(sidechain_amount) * (1.0 - beacon_level)
+
+        # Master gain + side-chain + soft limiter
+        mix *= self._store.get_master_gain() * sc_factor
         mix = np.tanh(mix * 1.05) * 0.95
         outdata[:] = mix
 

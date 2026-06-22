@@ -55,6 +55,26 @@ DEFAULT_VOICE_PHASE_DEG = 0.0
 DEFAULT_VOICE_ATTACK_S = 0.01   # ramp-up time in seconds
 DEFAULT_VOICE_RELEASE_S = 0.15  # ramp-down time in seconds
 
+# Timbre: waveshaper drive (0=pure sine, 1=rich harmonics — didgeridoo/vocal)
+DEFAULT_VOICE_SHAPE = 0.0
+
+# ─── Side-chain (beacon → shaper envelope following) ────────────────────────
+# sidechain_amount: -1=ducking, 0=off, +1=follow
+# beacon_level is updated via OSC /beacon/level from SC engine
+DEFAULT_SIDECHAIN_AMOUNT = 0.0
+
+# ─── LFO (synced to beacon strumming) ───────────────────────────────────────
+DEFAULT_LFO_RATE_DIVISOR = 1    # strum period ÷ N (1=every strum)
+DEFAULT_LFO_WAVEFORM = "sine"   # sine | triangle | saw | square | samplehold
+DEFAULT_LFO_AMOUNT = 0.0        # 0..1 global amount
+DEFAULT_LFO_GAIN = 0.0          # per-voice LFO → gain mod
+DEFAULT_LFO_PAN = 0.0
+DEFAULT_LFO_PHASE = 0.0
+
+# Strum detection: how many recent strums to average for period estimate
+STRUM_WINDOW = 8
+DEFAULT_STRUM_PERIOD_S = 0.5    # fallback when no strums detected yet
+
 # ─── Mix ─────────────────────────────────────────────────────────────────────
 # Shaper master gain (0..1). Beacon master is controlled via /beacon/master OSC.
 DEFAULT_SHAPER_MASTER = 0.8

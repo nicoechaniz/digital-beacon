@@ -12,6 +12,7 @@ Adapted from NaturalHarmony/harmonic_shaper/osc_receiver.py.
 import logging
 import socket
 import threading
+import time
 from typing import Optional
 
 try:
@@ -77,6 +78,7 @@ class ShaperOSCReceiver:
         d.map("/beacon/voice/freq", self._on_voice_freq)
         d.map("/beacon/f1", self._on_f1)
         d.map("/beacon/panic", lambda *_: self._store.panic())
+        d.map("/beacon/level", self._on_beacon_level)
         d.set_default_handler(lambda *_: None)
 
         try:
@@ -97,6 +99,7 @@ class ShaperOSCReceiver:
         else:
             harmonic_n = int(harmonic_n)
         self._store.voice_on(harmonic_n, int(voice_id), float(freq), gain=float(gain))
+        self._store.record_strum(time.time())
         log.debug("voice_on n=%d freq=%.2f", harmonic_n, freq)
 
     def _on_voice_off(self, addr, voice_id, *_):
@@ -108,6 +111,9 @@ class ShaperOSCReceiver:
     def _on_f1(self, addr, f1, *_):
         self._store.update_f1(float(f1))
         log.debug("f1 -> %.2f Hz", f1)
+
+    def _on_beacon_level(self, addr, level, *_):
+        self._store.set_beacon_level(float(level))
 
     # ─── Direct shaper control (/digital/*) ───────────────────────────────
 

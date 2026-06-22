@@ -177,6 +177,14 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
             store.set_global_release(value)
         elif param == "master":
             store.set_master_gain(value)
+        elif param == "sidechain":
+            store.set_sidechain_amount(value)
+        elif param == "lfo_rate_divisor":
+            store.set_lfo_rate_divisor(int(value))
+        elif param == "lfo_waveform":
+            store.set_lfo_waveform(body.get(param, "sine"))
+        elif param == "lfo_amount":
+            store.set_lfo_amount(value)
         else:
             raise HTTPException(400, f"unknown global param: {param}")
         return {"ok": True, "param": param, "value": value}
@@ -186,7 +194,7 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
     async def set_shaper_param(n: int, param: str, body: dict):
         """Set per-harmonic Shaper parameter.
 
-        param: gain | pan | phase_deg | attack_s | release_s
+        param: gain | pan | phase_deg | attack_s | release_s | shape | lfo_gain | lfo_pan | lfo_phase
         """
         if n < 1 or n > config.N_BANDS:
             raise HTTPException(400, f"n must be 1..{config.N_BANDS}")
@@ -201,6 +209,14 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
             store.set_attack(n, value)
         elif param == "release_s":
             store.set_release(n, value)
+        elif param == "shape":
+            store.set_shape(n, value)
+        elif param == "lfo_gain":
+            store.set_lfo_gain(n, value)
+        elif param == "lfo_pan":
+            store.set_lfo_pan(n, value)
+        elif param == "lfo_phase":
+            store.set_lfo_phase(n, value)
         else:
             raise HTTPException(400, f"unknown param: {param}")
         return {"ok": True, "n": n, "param": param, "value": value}
