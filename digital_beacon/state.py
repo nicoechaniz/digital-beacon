@@ -56,6 +56,7 @@ class VoiceParameterStore:
         self.f1: float = config.DEFAULT_F1
         self._master_gain: float = 1.0
         self._on_change = on_change
+        self._panic_callback: Optional[Callable[[], None]] = None
 
     # ─── Internal helpers ─────────────────────────────────────────────────
 
@@ -165,6 +166,12 @@ class VoiceParameterStore:
                 v.phase = 0.0
             self._active_history.clear()
         self._notify()
+        # Also notify the MIDI control (Launchpad) to clear lights + state
+        if self._panic_callback:
+            try:
+                self._panic_callback()
+            except Exception:
+                pass
 
     # ─── Snapshot accessors ───────────────────────────────────────────────
 

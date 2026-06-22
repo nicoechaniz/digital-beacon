@@ -362,7 +362,7 @@ class LaunchpadMiniControl:
     def _all_lights_off(self):
         if self._out_port is None:
             return
-        for n in range(64):
+        for n in range(128):
             try:
                 self._out_port.send(
                     mido.Message('note_on', note=n, velocity=0, channel=0)

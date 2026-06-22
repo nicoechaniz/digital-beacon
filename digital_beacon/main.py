@@ -78,6 +78,7 @@ def main() -> None:
     osc = ShaperOSCReceiver(store)
 
     launchpad = LaunchpadMiniControl(store)
+    store._panic_callback = launchpad.panic
 
     def _shutdown(signum, frame):
         log.info("Signal %d — shutting down", signum)
