@@ -6,7 +6,7 @@ AUDIO_BLOCK_SIZE = 256
 AUDIO_DEVICE = None       # None = system default
 
 # ─── f1 / harmonic band setup ────────────────────────────────────────────────
-DEFAULT_F1 = 40.0        # base frequency in Hz (NOT fixed — see F1_MOD_POINTS)
+DEFAULT_F1 = 40.40        # base frequency in Hz (exact guitar E1 4th string open)
 N_BANDS = 32              # 32 BPF in beacon.scd (band N = f1 * N)
 
 # 12-point discrete f1 modulation slot — NOT IMPLEMENTED YET.

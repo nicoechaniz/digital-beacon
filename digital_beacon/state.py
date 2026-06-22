@@ -66,6 +66,8 @@ class VoiceParameterStore:
         self._voices: dict[int, VoiceParams] = {}
         self._active_history: list[int] = []  # chronological, for note stealing
         self.f1: float = config.DEFAULT_F1
+        self._base_f1: float = config.DEFAULT_F1    # before vsrate
+        self._vsrate: float = 1.0
         self._master_gain: float = config.DEFAULT_SHAPER_MASTER
         self._global_attack_s: float = config.DEFAULT_VOICE_ATTACK_S
         self._global_release_s: float = config.DEFAULT_VOICE_RELEASE_S
@@ -141,7 +143,14 @@ class VoiceParameterStore:
 
     def update_f1(self, f1: float) -> None:
         with self._lock:
-            self.f1 = max(config.F1_MIN, min(config.F1_MAX, float(f1)))
+            self._base_f1 = max(config.F1_MIN, min(config.F1_MAX, float(f1)))
+            self.f1 = self._base_f1 * self._vsrate
+        self._notify()
+
+    def set_vsrate(self, rate: float) -> None:
+        with self._lock:
+            self._vsrate = max(0.1, min(4.0, float(rate)))
+            self.f1 = self._base_f1 * self._vsrate
         self._notify()
 
     # ─── Parameter control ────────────────────────────────────────────────

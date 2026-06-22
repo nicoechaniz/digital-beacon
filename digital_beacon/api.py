@@ -118,7 +118,6 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
     @app.post("/api/panic")
     async def panic():
         store.panic()
-        sc_osc.send_message("/beacon/panic", [])
         return {"ok": True, "action": "panic"}
 
     # ─── REST: SC beacon control (proxy to sclang:57120) ─────────────────
@@ -147,14 +146,16 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
 
     @app.post("/api/f1")
     async def set_f1(body: dict):
-        hz = float(body.get("f1", 40.0))
+        hz = float(body.get("f1", config.DEFAULT_F1))
         sc_osc.send_message("/beacon/f1", [hz])
+        store.update_f1(hz)
         return {"ok": True, "f1": hz}
 
     @app.post("/api/vsource")
     async def set_vsource(body: dict):
         rate = float(body.get("rate", 1.0))
         sc_osc.send_message("/beacon/vsource", [rate])
+        store.set_vsrate(rate)
         return {"ok": True, "rate": rate}
 
     @app.post("/api/master")
@@ -168,8 +169,11 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
     async def set_shaper_global(param: str, body: dict):
         """Set global Shaper parameters.
 
-        param: attack | release | master
+        param: attack | release | master | sidechain | lfo_rate_divisor | lfo_waveform | lfo_amount
         """
+        if param == "lfo_waveform":
+            store.set_lfo_waveform(body.get(param, "sine"))
+            return {"ok": True, "param": param, "value": body.get(param)}
         value = float(body.get(param, 0.0))
         if param == "attack":
             store.set_global_attack(value)
@@ -181,8 +185,6 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
             store.set_sidechain_amount(value)
         elif param == "lfo_rate_divisor":
             store.set_lfo_rate_divisor(int(value))
-        elif param == "lfo_waveform":
-            store.set_lfo_waveform(body.get(param, "sine"))
         elif param == "lfo_amount":
             store.set_lfo_amount(value)
         else:
