@@ -320,24 +320,24 @@ for (let n = 1; n <= N_BANDS; n++) {
       <input type="range" orient="vertical" min="0" max="3" step="0.05" value="0.8"
              id="g${n}" oninput="sendParam('gain', ${n}, this.value); showFloat(this, 'g${n}')">
     </div>
-    <div class="value" id="g${n}">0.80</div>
+    <div class="value" id="g${n}-val">0.80</div>
     <div class="param">
       <label>Az</label>
       <input type="range" min="-180" max="180" step="1" value="0"
              id="a${n}" oninput="sendParam('az', ${n}, this.value); showInt(this, 'a${n}', '°')">
-      <div class="value" id="a${n}">0°</div>
+      <div class="value" id="a${n}-val">0°</div>
     </div>
     <div class="param">
       <label>Dist</label>
       <input type="range" min="0" max="10" step="0.1" value="2.0"
              id="d${n}" oninput="sendParam('dist', ${n}, this.value); showFloat(this, 'd${n}')">
-      <div class="value" id="d${n}">2.0</div>
+      <div class="value" id="d${n}-val">2.0</div>
     </div>
     <div class="param">
       <label>Q</label>
       <input type="range" min="0.01" max="2.0" step="0.01" value="0.5"
              id="q${n}" oninput="sendParam('q', ${n}, this.value); showFloat(this, 'q${n}')">
-      <div class="value" id="q${n}">0.50</div>
+      <div class="value" id="q${n}-val">0.50</div>
     </div>
     <button class="solo-btn on" id="on${n}" onclick="toggleOn(${n}, this)">ON</button>
   `;
@@ -379,25 +379,29 @@ function applyScState() {
     const btn = card.querySelector('#on' + n);
     if (isOn) { btn.classList.add('on'); btn.textContent = 'ON'; }
     else { btn.classList.remove('on'); btn.textContent = 'OFF'; }
-    const gIn = card.querySelector('#g' + n);
-    if (document.activeElement !== gIn) {
+    const gIn = document.getElementById('g' + n);
+    if (gIn && document.activeElement !== gIn) {
       gIn.value = scState.gain[n];
-      card.querySelector('#g' + n + ' ~ .value, .value[id="g' + n + '"]').textContent = scState.gain[n].toFixed(2);
+      const v = document.getElementById('g' + n + '-val');
+      if (v) v.textContent = scState.gain[n].toFixed(2);
     }
-    const aIn = card.querySelector('#a' + n);
-    if (document.activeElement !== aIn) {
+    const aIn = document.getElementById('a' + n);
+    if (aIn && document.activeElement !== aIn) {
       aIn.value = scState.az[n];
-      card.querySelector('#a' + n + ' ~ .value, .value[id="a' + n + '"]').textContent = Math.round(scState.az[n]) + '°';
+      const v = document.getElementById('a' + n + '-val');
+      if (v) v.textContent = Math.round(scState.az[n]) + '°';
     }
-    const dIn = card.querySelector('#d' + n);
-    if (document.activeElement !== dIn) {
+    const dIn = document.getElementById('d' + n);
+    if (dIn && document.activeElement !== dIn) {
       dIn.value = scState.dist[n];
-      card.querySelector('#d' + n + ' ~ .value, .value[id="d' + n + '"]').textContent = scState.dist[n].toFixed(1);
+      const v = document.getElementById('d' + n + '-val');
+      if (v) v.textContent = scState.dist[n].toFixed(1);
     }
-    const qIn = card.querySelector('#q' + n);
-    if (document.activeElement !== qIn) {
+    const qIn = document.getElementById('q' + n);
+    if (qIn && document.activeElement !== qIn) {
       qIn.value = scState.q[n];
-      card.querySelector('#q' + n + ' ~ .value, .value[id="q' + n + '"]').textContent = scState.q[n].toFixed(2);
+      const v = document.getElementById('q' + n + '-val');
+      if (v) v.textContent = scState.q[n].toFixed(2);
     }
   }
 }
