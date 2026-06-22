@@ -3,7 +3,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>digital-beacon — SC control</title>
+    <title>digital-beacon</title>
     <style>
         * { box-sizing: border-box; margin: 0; padding: 0; }
         body {
@@ -14,256 +14,181 @@
             min-height: 100vh;
         }
         h1 {
-            text-align: center;
-            margin-bottom: 8px;
-            font-weight: 300;
-            letter-spacing: 2px;
-            font-size: 1.5rem;
+            text-align: center; margin-bottom: 8px;
+            font-weight: 300; letter-spacing: 2px; font-size: 1.5rem;
         }
         .subtitle {
-            text-align: center;
-            color: #666;
-            margin-bottom: 12px;
-            font-size: 0.85rem;
+            text-align: center; color: #666; margin-bottom: 12px; font-size: 0.85rem;
         }
         .spectrum {
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            gap: 2px;
-            height: 60px;
-            max-width: 1400px;
-            margin: 0 auto 20px;
-            padding: 8px;
-            background: #0d0d14;
-            border-radius: 8px;
-            border: 1px solid #1a1a2e;
+            display: flex; align-items: flex-end; justify-content: center;
+            gap: 2px; height: 60px; max-width: 1400px;
+            margin: 0 auto 20px; padding: 8px;
+            background: #0d0d14; border-radius: 8px; border: 1px solid #1a1a2e;
         }
         .spectrum-bar {
-            flex: 1;
-            min-width: 2px;
-            border-radius: 2px 2px 0 0;
-            transition: height 0.1s, background 0.1s;
-            opacity: 0.85;
+            flex: 1; min-width: 2px; border-radius: 2px 2px 0 0;
+            transition: height 0.1s, background 0.1s; opacity: 0.85;
         }
         .header {
-            display: flex;
-            justify-content: center;
-            gap: 24px;
-            align-items: center;
-            margin-bottom: 16px;
-            flex-wrap: wrap;
+            display: flex; justify-content: center; gap: 24px; align-items: center;
+            margin-bottom: 12px; flex-wrap: wrap;
         }
         .pill {
-            background: #12121a;
-            border: 1px solid #1a1a2e;
-            padding: 6px 14px;
-            border-radius: 6px;
-            font-size: 0.8rem;
+            background: #12121a; border: 1px solid #1a1a2e;
+            padding: 6px 14px; border-radius: 6px; font-size: 0.8rem;
         }
         .pill b { color: #1abc9c; }
         .conn-ok { color: #2ecc71; }
         .conn-bad { color: #e74c3c; }
         button.action {
-            padding: 8px 16px;
-            border-radius: 6px;
-            border: 1px solid #e74c3c;
-            background: transparent;
-            color: #e74c3c;
-            cursor: pointer;
-            font-size: 0.75rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 1px;
+            padding: 8px 16px; border-radius: 6px; border: 1px solid #e74c3c;
+            background: transparent; color: #e74c3c; cursor: pointer;
+            font-size: 0.75rem; font-weight: 600; text-transform: uppercase; letter-spacing: 1px;
         }
         button.action:hover { background: #e74c3c; color: #000; }
         .grid {
-            display: grid;
-            grid-template-columns: repeat(8, 1fr);
-            gap: 6px;
-            max-width: 1400px;
-            margin: 0 auto 20px;
+            display: grid; grid-template-columns: repeat(8, 1fr);
+            gap: 4px; max-width: 1600px; margin: 0 auto 16px;
         }
         .band {
-            background: #12121a;
-            border-radius: 8px;
-            padding: 8px 4px;
-            text-align: center;
-            border: 1px solid #1a1a2e;
-            transition: border-color 0.15s, opacity 0.15s, background 0.15s;
-            position: relative;
+            background: #12121a; border-radius: 6px; padding: 4px 3px;
+            text-align: center; border: 1px solid #1a1a2e;
+            transition: border-color 0.15s; position: relative;
         }
-        .band.sc-active {
-            border-color: #1abc9c;
-            background: #0e1c18;
-        }
+        .band.sc-active { border-color: #1abc9c; background: #0e1c18; }
         .led {
-            position: absolute;
-            top: 4px;
-            right: 4px;
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #333;
-            transition: background 0.05s, box-shadow 0.05s;
+            position: absolute; top: 3px; right: 3px;
+            width: 6px; height: 6px; border-radius: 50%;
+            background: #333; transition: background 0.05s, box-shadow 0.05s;
         }
-        .led.on {
-            background: #e74c3c;
-            box-shadow: 0 0 8px #e74c3c;
-        }
+        .led.on { background: #e74c3c; box-shadow: 0 0 6px #e74c3c; }
         .band-label {
-            font-size: 0.7rem;
-            font-weight: 600;
-            margin-bottom: 4px;
-            color: #1abc9c;
+            font-size: 0.65rem; font-weight: 600; color: #1abc9c;
             letter-spacing: 0.5px;
         }
-        .band-freq {
-            font-size: 0.6rem;
-            color: #888;
-            margin-bottom: 6px;
+        .band-freq { font-size: 0.55rem; color: #888; margin-bottom: 2px; }
+        .divider {
+            font-size: 0.4rem; color: #444; text-transform: uppercase;
+            letter-spacing: 1px; margin: 4px 0 2px;
+            border-top: 1px solid #1a1a2e; padding-top: 2px;
         }
         .fader-container {
-            height: 80px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 6px;
+            height: 60px; display: flex; justify-content: center;
+            align-items: center; margin-bottom: 2px;
         }
         input[type=range][orient=vertical] {
-            writing-mode: bt-lr;
-            -webkit-appearance: slider-vertical;
-            width: 18px;
-            height: 70px;
+            writing-mode: bt-lr; -webkit-appearance: slider-vertical;
+            width: 16px; height: 55px;
         }
-        input[type=range] {
-            -webkit-appearance: none;
-            background: transparent;
-            cursor: pointer;
-        }
+        input[type=range] { -webkit-appearance: none; background: transparent; cursor: pointer; }
         input[type=range]::-webkit-slider-thumb {
-            -webkit-appearance: none;
-            height: 12px;
-            width: 12px;
-            border-radius: 50%;
-            background: currentColor;
-            margin-top: -4px;
+            -webkit-appearance: none; height: 10px; width: 10px;
+            border-radius: 50%; background: currentColor; margin-top: -3px;
             box-shadow: 0 0 4px currentColor;
         }
         input[type=range]::-webkit-slider-runnable-track {
-            height: 3px;
-            background: #2a2a3e;
-            border-radius: 2px;
+            height: 3px; background: #2a2a3e; border-radius: 2px;
         }
         .param {
-            margin-bottom: 4px;
+            display: flex; align-items: center; gap: 3px; margin-bottom: 2px;
         }
         .param label {
-            display: block;
-            font-size: 0.5rem;
-            color: #888;
-            margin-bottom: 1px;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            font-size: 0.45rem; color: #888; text-transform: uppercase;
+            letter-spacing: 0.5px; min-width: 16px; text-align: right;
         }
-        .param input[type=range] {
-            width: 100%;
-        }
-        .value {
-            font-size: 0.55rem;
-            color: #aaa;
-            margin-top: 1px;
+        .param input[type=range] { flex: 1; }
+        .param .val {
+            font-size: 0.45rem; color: #aaa; min-width: 24px; text-align: left;
         }
         .solo-btn {
-            display: inline-block;
-            padding: 2px 6px;
-            font-size: 0.5rem;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            text-transform: uppercase;
-            border: 1px solid #444;
-            border-radius: 3px;
-            background: transparent;
-            color: #666;
-            cursor: pointer;
-            margin-top: 2px;
+            padding: 2px 5px; font-size: 0.45rem; font-weight: 700;
+            letter-spacing: 0.5px; text-transform: uppercase;
+            border: 1px solid #444; border-radius: 3px;
+            background: transparent; color: #666; cursor: pointer;
             transition: all 0.15s;
         }
-        .solo-btn.on {
-            background: #1abc9c;
-            color: #000;
-            border-color: #1abc9c;
-            box-shadow: 0 0 6px #1abc9c;
-        }
+        .solo-btn.on { background: #1abc9c; color: #000; border-color: #1abc9c; box-shadow: 0 0 6px #1abc9c; }
+        .solo-btn.shaper-on { background: #e74c3c; color: #000; border-color: #e74c3c; box-shadow: 0 0 6px #e74c3c; }
         .mix-section {
-            max-width: 1400px;
-            margin: 0 auto 16px;
-            background: #12121a;
-            border-radius: 8px;
-            padding: 12px 16px;
-            border: 1px solid #1a1a2e;
+            max-width: 1600px; margin: 0 auto 12px; background: #12121a;
+            border-radius: 8px; padding: 10px 16px; border: 1px solid #1a1a2e;
         }
         .mix-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 16px;
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 12px;
         }
-        .mix-param {
-            text-align: center;
+        .mix-param { text-align: center; }
+        .mix-param input[type=range] { width: 100%; }
+        .mix-param label.section-label {
+            display: block; font-size: 0.6rem; margin-bottom: 6px;
+            text-transform: uppercase; letter-spacing: 1px;
         }
-        .mix-param input[type=range] {
-            width: 100%;
-        }
-        @media (max-width: 1200px) {
-            .grid { grid-template-columns: repeat(6, 1fr); }
-        }
-        @media (max-width: 900px) {
-            .grid { grid-template-columns: repeat(4, 1fr); }
-        }
-        @media (max-width: 600px) {
-            .grid { grid-template-columns: repeat(2, 1fr); }
-        }
+        @media (max-width: 1400px) { .grid { grid-template-columns: repeat(8, 1fr); } }
+        @media (max-width: 1200px) { .grid { grid-template-columns: repeat(6, 1fr); } }
+        @media (max-width: 900px)  { .grid { grid-template-columns: repeat(4, 1fr); } }
+        @media (max-width: 600px)  { .grid { grid-template-columns: repeat(2, 1fr); } }
     </style>
 </head>
 <body>
     <h1>digital-beacon</h1>
-    <p class="subtitle">32-band SC control · LED = Shaper active · Launchpad split mode</p>
+    <p class="subtitle">32-band binaural spatializer + Shaper additive synth · LED=Shaper active</p>
 
     <div class="spectrum" id="spectrum"></div>
 
     <div class="header">
         <div class="pill">f1 = <b id="f1-val">40.0</b> Hz</div>
-        <div class="pill">Shaper voices = <b id="active-count">0</b> / 32</div>
+        <div class="pill">Shaper = <b id="active-count">0</b> / 32</div>
         <div class="pill">WS <span id="conn" class="conn-bad">disconnected</span></div>
         <button class="action" onclick="panic()">PANIC</button>
         <button class="action" style="border-color:#3498db; color:#3498db;" onclick="resetBeacon()">RESET</button>
     </div>
 
-    <div class="grid" id="grid"></div>
-
+    <!-- Global controls -->
     <div class="mix-section">
         <div class="mix-grid">
             <div class="mix-param">
-                <label style="display:block; font-size:0.65rem; color:#1abc9c; margin-bottom:6px;">MASTER (SC)</label>
+                <label class="section-label" style="color:#1abc9c;">Beacon Master</label>
                 <input type="range" min="0" max="3" step="0.05" value="0.9" id="master"
-                       oninput="sendMaster(this.value); show(this, 'vmaster')">
-                <div class="value" id="vmaster">0.90</div>
+                       oninput="sendMaster(this.value); showVal('vmaster', parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vmaster" style="font-size:0.65rem;">0.90</div>
             </div>
             <div class="mix-param">
-                <label style="display:block; font-size:0.65rem; color:#1abc9c; margin-bottom:6px;">f1 (via /beacon/f1)</label>
-                <input type="range" min="20" max="80" step="1" value="40" id="f1-slider"
-                       oninput="sendF1(this.value); show(this, 'vf1')">
-                <div class="value" id="vf1">40 Hz</div>
+                <label class="section-label" style="color:#e74c3c;">Shaper Master</label>
+                <input type="range" min="0" max="1" step="0.01" value="0.8" id="shaper-master"
+                       oninput="sendShaperGlobal('master', this.value); showVal('vsmaster', parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vsmaster" style="font-size:0.65rem;">0.80</div>
             </div>
             <div class="mix-param">
-                <label style="display:block; font-size:0.65rem; color:#1abc9c; margin-bottom:6px;">vsrate (varispeed)</label>
+                <label class="section-label" style="color:#e67e22;">Attack (s)</label>
+                <input type="range" min="0.001" max="2.0" step="0.001" value="0.01" id="attack"
+                       oninput="sendShaperGlobal('attack', this.value); showVal('vattack', parseFloat(this.value).toFixed(3))">
+                <div class="val" id="vattack" style="font-size:0.65rem;">0.010</div>
+            </div>
+            <div class="mix-param">
+                <label class="section-label" style="color:#9b59b6;">Release (s)</label>
+                <input type="range" min="0.01" max="3.0" step="0.01" value="0.15" id="release"
+                       oninput="sendShaperGlobal('release', this.value); showVal('vrelease', parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vrelease" style="font-size:0.65rem;">0.15</div>
+            </div>
+            <div class="mix-param">
+                <label class="section-label" style="color:#3498db;">f1 (Hz)</label>
+                <input type="range" min="20" max="200" step="1" value="40" id="f1-slider"
+                       oninput="sendF1(this.value); showVal('vf1', this.value + ' Hz')">
+                <div class="val" id="vf1" style="font-size:0.65rem;">40 Hz</div>
+            </div>
+            <div class="mix-param">
+                <label class="section-label" style="color:#3498db;">vsrate</label>
                 <input type="range" min="0.25" max="2.0" step="0.01" value="1.0" id="vsrate-slider"
-                       oninput="sendVsrate(this.value); show(this, 'vvsrate')">
-                <div class="value" id="vvsrate">1.00</div>
+                       oninput="sendVsrate(this.value); showVal('vvsrate', parseFloat(this.value).toFixed(2))">
+                <div class="val" id="vvsrate" style="font-size:0.65rem;">1.00</div>
             </div>
         </div>
     </div>
 
+    <div class="grid" id="grid"></div>
+
+    <!-- Presets -->
     <div class="mix-section">
         <h2 style="font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:2px; margin-bottom:10px;">Presets</h2>
         <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; align-items:end;">
@@ -295,7 +220,7 @@ const f1El = document.getElementById('f1-val');
 const activeEl = document.getElementById('active-count');
 const connEl = document.getElementById('conn');
 
-// Build spectrum
+// Build spectrum bars
 for (let i = 0; i < N_BANDS; i++) {
   const bar = document.createElement('div');
   bar.className = 'spectrum-bar';
@@ -305,7 +230,13 @@ for (let i = 0; i < N_BANDS; i++) {
   spectrum.appendChild(bar);
 }
 
-// Build 32 cards — beacon control (gain/az/dist/q/on) + LED for Shaper
+// Helper: update display value
+function showVal(id, text) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = text;
+}
+
+// Build 32 cards — split: SPATIALIZER on top, SHAPER on bottom
 const cards = [];
 const scState = { on: {}, gain: {}, az: {}, dist: {}, q: {} };
 for (let n = 1; n <= N_BANDS; n++) {
@@ -316,37 +247,46 @@ for (let n = 1; n <= N_BANDS; n++) {
     <div class="led" data-role="led"></div>
     <div class="band-label">H${String(n).padStart(2, '0')}</div>
     <div class="band-freq">${(40 * n).toFixed(0)} Hz</div>
+    <div class="divider" style="color:#1abc9c;">SPATIALIZER</div>
     <div class="fader-container" style="color: #1abc9c;">
       <input type="range" orient="vertical" min="0" max="3" step="0.05" value="0.8"
-             id="g${n}" oninput="sendParam('gain', ${n}, this.value); showFloat(this, 'g${n}')">
+             id="g${n}" oninput="sendBeaconParam('gain', ${n}, this.value); showVal('gv${n}', parseFloat(this.value).toFixed(2))">
     </div>
-    <div class="value" id="g${n}-val">0.80</div>
-    <div class="param">
-      <label>Az</label>
-      <input type="range" min="-180" max="180" step="1" value="0"
-             id="a${n}" oninput="sendParam('az', ${n}, this.value); showInt(this, 'a${n}', '°')">
-      <div class="value" id="a${n}-val">0°</div>
-    </div>
-    <div class="param">
-      <label>Dist</label>
-      <input type="range" min="0" max="10" step="0.1" value="2.0"
-             id="d${n}" oninput="sendParam('dist', ${n}, this.value); showFloat(this, 'd${n}')">
-      <div class="value" id="d${n}-val">2.0</div>
-    </div>
-    <div class="param">
-      <label>Q</label>
-      <input type="range" min="0.01" max="2.0" step="0.01" value="0.5"
-             id="q${n}" oninput="sendParam('q', ${n}, this.value); showFloat(this, 'q${n}')">
-      <div class="value" id="q${n}-val">0.50</div>
-    </div>
+    <div class="val" id="gv${n}" style="font-size:0.5rem; text-align:center;">0.80</div>
+    <div class="param"><label>Az</label>
+      <input type="range" min="-180" max="180" step="1" value="0" id="a${n}"
+             oninput="sendBeaconParam('az', ${n}, this.value); showVal('av${n}', Math.round(this.value) + '\u00B0')">
+      <span class="val" id="av${n}">0\u00B0</span></div>
+    <div class="param"><label>Dst</label>
+      <input type="range" min="0" max="10" step="0.1" value="2.0" id="d${n}"
+             oninput="sendBeaconParam('dist', ${n}, this.value); showVal('dv${n}', parseFloat(this.value).toFixed(1))">
+      <span class="val" id="dv${n}">2.0</span></div>
+    <div class="param"><label>Q</label>
+      <input type="range" min="0.01" max="2.0" step="0.01" value="0.5" id="q${n}"
+             oninput="sendBeaconParam('q', ${n}, this.value); showVal('qv${n}', parseFloat(this.value).toFixed(2))">
+      <span class="val" id="qv${n}">0.50</span></div>
     <button class="solo-btn on" id="on${n}" onclick="toggleOn(${n}, this)">ON</button>
+    <div class="divider" style="color:#e74c3c;">SHAPER</div>
+    <div class="param"><label>Gain</label>
+      <input type="range" min="0" max="1" step="0.01" value="0.6" id="sg${n}"
+             oninput="sendShaperParam('gain', ${n}, this.value); showVal('sgv${n}', parseFloat(this.value).toFixed(2))">
+      <span class="val" id="sgv${n}">0.60</span></div>
+    <div class="param"><label>Pan</label>
+      <input type="range" min="-1" max="1" step="0.01" value="0.0" id="sp${n}"
+             oninput="sendShaperParam('pan', ${n}, this.value); showVal('spv${n}', parseFloat(this.value).toFixed(2))">
+      <span class="val" id="spv${n}">0.00</span></div>
+    <div class="param"><label>Ph</label>
+      <input type="range" min="0" max="360" step="1" value="0" id="sph${n}"
+             oninput="sendShaperParam('phase_deg', ${n}, this.value); showVal('sphv${n}', Math.round(this.value) + '\u00B0')">
+      <span class="val" id="sphv${n}">0\u00B0</span></div>
   `;
   grid.appendChild(card);
   cards.push(card);
   scState.on[n] = 1; scState.gain[n] = 0.8; scState.az[n] = 0; scState.dist[n] = 2.0; scState.q[n] = 0.5;
 }
 
-let shaperState = { f1: 40.0, voices: {} };
+// ─── Shaper state from WebSocket ──────────────────────────────────────
+let shaperState = { f1: 40.0, master_gain: 0.8, voices: {} };
 
 function applyShaperState(s) {
   shaperState = s;
@@ -356,10 +296,20 @@ function applyShaperState(s) {
     const v = s.voices[String(n)] || {};
     const isShaperActive = !!v.active;
     if (isShaperActive) active++;
-    // Only the LED reflects Shaper activity
     const card = cards[n - 1];
     const led = card.querySelector('[data-role="led"]');
     led.classList.toggle('on', isShaperActive);
+
+    // Update shaper sliders from state (only if not focused)
+    ['sg', 'sp', 'sph'].forEach(prefix => {
+      const el = document.getElementById(prefix + n);
+      if (el && document.activeElement !== el) {
+        if (prefix === 'sg') el.value = v.gain !== undefined ? v.gain : 0.6;
+        if (prefix === 'sp') el.value = v.pan !== undefined ? v.pan : 0.0;
+        if (prefix === 'sph') el.value = v.phase_deg !== undefined ? v.phase_deg : 0;
+      }
+    });
+
     // Spectrum
     const spec = document.getElementById('spec' + n);
     if (spec) {
@@ -369,8 +319,26 @@ function applyShaperState(s) {
     }
   }
   activeEl.textContent = active;
+
+  // Update global controls from state (if not focused)
+  if (s.master_gain !== undefined) {
+    const sm = document.getElementById('shaper-master');
+    if (sm && document.activeElement !== sm) sm.value = s.master_gain;
+    showVal('vsmaster', s.master_gain.toFixed(2));
+  }
+  if (s.global_attack_s !== undefined) {
+    const at = document.getElementById('attack');
+    if (at && document.activeElement !== at) at.value = s.global_attack_s;
+    showVal('vattack', s.global_attack_s.toFixed(3));
+  }
+  if (s.global_release_s !== undefined) {
+    const rl = document.getElementById('release');
+    if (rl && document.activeElement !== rl) rl.value = s.global_release_s;
+    showVal('vrelease', s.global_release_s.toFixed(2));
+  }
 }
 
+// ─── Beacon SC state (client-side cache, updated from user input) ─────
 function applyScState() {
   for (let n = 1; n <= N_BANDS; n++) {
     const card = cards[n - 1];
@@ -379,46 +347,43 @@ function applyScState() {
     const btn = card.querySelector('#on' + n);
     if (isOn) { btn.classList.add('on'); btn.textContent = 'ON'; }
     else { btn.classList.remove('on'); btn.textContent = 'OFF'; }
+
     const gIn = document.getElementById('g' + n);
-    if (gIn && document.activeElement !== gIn) {
-      gIn.value = scState.gain[n];
-      const v = document.getElementById('g' + n + '-val');
-      if (v) v.textContent = scState.gain[n].toFixed(2);
-    }
+    if (gIn && document.activeElement !== gIn) { gIn.value = scState.gain[n]; showVal('gv'+n, scState.gain[n].toFixed(2)); }
     const aIn = document.getElementById('a' + n);
-    if (aIn && document.activeElement !== aIn) {
-      aIn.value = scState.az[n];
-      const v = document.getElementById('a' + n + '-val');
-      if (v) v.textContent = Math.round(scState.az[n]) + '°';
-    }
+    if (aIn && document.activeElement !== aIn) { aIn.value = scState.az[n]; showVal('av'+n, Math.round(scState.az[n])+'\u00B0'); }
     const dIn = document.getElementById('d' + n);
-    if (dIn && document.activeElement !== dIn) {
-      dIn.value = scState.dist[n];
-      const v = document.getElementById('d' + n + '-val');
-      if (v) v.textContent = scState.dist[n].toFixed(1);
-    }
+    if (dIn && document.activeElement !== dIn) { dIn.value = scState.dist[n]; showVal('dv'+n, scState.dist[n].toFixed(1)); }
     const qIn = document.getElementById('q' + n);
-    if (qIn && document.activeElement !== qIn) {
-      qIn.value = scState.q[n];
-      const v = document.getElementById('q' + n + '-val');
-      if (v) v.textContent = scState.q[n].toFixed(2);
-    }
+    if (qIn && document.activeElement !== qIn) { qIn.value = scState.q[n]; showVal('qv'+n, scState.q[n].toFixed(2)); }
   }
 }
 
+// ─── API helpers ──────────────────────────────────────────────────────
 async function api(path, method='GET', body=null) {
   const opts = { method, headers: {'Content-Type':'application/json'} };
   if (body) opts.body = JSON.stringify(body);
-  try {
-    const r = await fetch(path, opts);
-    return await r.json();
-  } catch(e) { return null; }
+  try { const r = await fetch(path, opts); return await r.json(); }
+  catch(e) { return null; }
 }
 
-function sendParam(param, n, value) {
-  scState[param][n] = parseFloat(value);
-  api(`/api/harmonic/${n}/${param}`, 'POST', {[param]: parseFloat(value)});
+// Beacon spatializer params → /api/harmonic/{n}/{param} → SC
+function sendBeaconParam(param, n, value) {
+  const f = parseFloat(value);
+  scState[param][n] = f;
+  api(`/api/harmonic/${n}/${param}`, 'POST', {[param]: f});
 }
+
+// Shaper per-voice params → /api/shaper/{n}/{param}
+function sendShaperParam(param, n, value) {
+  api(`/api/shaper/${n}/${param}`, 'POST', {[param]: parseFloat(value)});
+}
+
+// Shaper global params → /api/shaper/global/{param}
+function sendShaperGlobal(param, value) {
+  api(`/api/shaper/global/${param}`, 'POST', {[param]: parseFloat(value)});
+}
+
 function sendMaster(value) {
   api('/api/master', 'POST', {master: parseFloat(value)});
 }
@@ -435,19 +400,19 @@ function toggleOn(n, btn) {
   api(`/api/harmonic/${n}/on`, 'POST', {on: newOn === 1});
 }
 function panic() { api('/api/panic', 'POST'); }
-function resetBeacon() { api('/api/reset', 'POST'); for (let n=1; n<=N_BANDS; n++) { scState.on[n]=1; scState.gain[n]=0.8; scState.az[n]=0; scState.dist[n]=2.0; scState.q[n]=0.5; } applyScState(); }
+function resetBeacon() {
+  api('/api/reset', 'POST');
+  for (let n=1; n<=N_BANDS; n++) {
+    scState.on[n]=1; scState.gain[n]=0.8; scState.az[n]=0; scState.dist[n]=2.0; scState.q[n]=0.5;
+  }
+  applyScState();
+}
 
+// ─── Presets ──────────────────────────────────────────────────────────
 async function gatherScState() {
   const bands = [];
   for (let n = 1; n <= N_BANDS; n++) {
-    bands.push({
-      n: n,
-      gain: scState.gain[n],
-      az: scState.az[n],
-      dist: scState.dist[n],
-      q: scState.q[n],
-      on: scState.on[n],
-    });
+    bands.push({ n, gain: scState.gain[n], az: scState.az[n], dist: scState.dist[n], q: scState.q[n], on: scState.on[n] });
   }
   const master = parseFloat(document.getElementById('master').value);
   return { bands, master };
@@ -462,7 +427,6 @@ async function applyScStateFromPreset(state) {
     scState.dist[n] = band.dist;
     scState.q[n] = band.q !== undefined ? band.q : 0.5;
     scState.on[n] = band.on !== undefined ? band.on : 1;
-    // Push to SC
     api(`/api/harmonic/${n}/gain`, 'POST', {gain: band.gain});
     api(`/api/harmonic/${n}/az`, 'POST', {az: band.az});
     api(`/api/harmonic/${n}/dist`, 'POST', {dist: band.dist});
@@ -483,73 +447,49 @@ function setPresetStatus(msg, color) {
 async function savePreset() {
   const nameInput = document.getElementById('save-name');
   const name = nameInput.value.trim();
-  if (!name) {
-    setPresetStatus('Enter a name', '#e67e22');
-    return;
-  }
+  if (!name) { setPresetStatus('Enter a name', '#e67e22'); return; }
   const state = await gatherScState();
   const result = await api('/api/presets/save', 'POST', {name, state});
-  if (result && result.ok) {
-    setPresetStatus('Saved: ' + result.name, '#2ecc71');
-    await loadPresetList();
-  } else {
-    setPresetStatus('Error: ' + (result && result.error), '#e74c3c');
-  }
+  if (result && result.ok) { setPresetStatus('Saved: ' + result.name, '#2ecc71'); await loadPresetList(); }
+  else { setPresetStatus('Error: ' + (result && result.error), '#e74c3c'); }
 }
 
 async function loadPreset() {
   const sel = document.getElementById('load-select');
   const name = sel.value;
   if (!name) { setPresetStatus('Select a preset', '#e67e22'); return; }
+  setPresetStatus('Loading...', '#3498db');
   const result = await api('/api/presets/load', 'POST', {name});
-  if (result && result.ok && result.state) {
+  if (result && result.ok) {
     await applyScStateFromPreset(result.state);
-    setPresetStatus('Loaded: ' + result.name, '#2ecc71');
+    setPresetStatus('Loaded: ' + name, '#2ecc71');
   } else {
-    setPresetStatus('Error loading', '#e74c3c');
+    setPresetStatus('Error: ' + (result && result.error), '#e74c3c');
   }
 }
 
 async function loadPresetList() {
   const result = await api('/api/presets');
+  if (!result || !result.ok) return;
   const sel = document.getElementById('load-select');
-  if (!sel) return;
   sel.innerHTML = '<option value="">-- select --</option>';
-  if (result && result.presets) {
-    for (const p of result.presets) {
-      const opt = document.createElement('option');
-      opt.value = p;
-      opt.textContent = p;
-      sel.appendChild(opt);
-    }
+  for (const name of result.presets) {
+    sel.innerHTML += `<option value="${name}">${name}</option>`;
   }
 }
-loadPresetList();
 
-function showFloat(input, id) {
-  const v = document.getElementById(id);
-  if (v) v.textContent = parseFloat(input.value).toFixed(2);
-}
-function showInt(input, id, suffix) {
-  const v = document.getElementById(id);
-  if (v) v.textContent = Math.round(input.value) + (suffix || '');
-}
-
+// ─── WebSocket ────────────────────────────────────────────────────────
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
   ws.onopen = () => { connEl.textContent = 'connected'; connEl.className = 'conn-ok'; };
-  ws.onclose = () => {
-    connEl.textContent = 'disconnected'; connEl.className = 'conn-bad';
-    setTimeout(connect, 1000);
-  };
+  ws.onclose = () => { connEl.textContent = 'disconnected'; connEl.className = 'conn-bad'; setTimeout(connect, 1000); };
   ws.onerror = () => ws.close();
-  ws.onmessage = (ev) => {
-    try { applyShaperState(JSON.parse(ev.data)); } catch(e) { console.error(e); }
-  };
+  ws.onmessage = (ev) => { try { applyShaperState(JSON.parse(ev.data)); } catch(e) { console.error(e); } };
 }
 connect();
 applyScState();
+loadPresetList();
 api('/api/state').then(s => { if (s) applyShaperState(s); }).catch(e => console.error(e));
 </script>
 </body>

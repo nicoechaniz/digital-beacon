@@ -51,6 +51,15 @@ DEFAULT_VOICE_GAIN = 0.6
 DEFAULT_VOICE_PAN = 0.0
 DEFAULT_VOICE_PHASE_DEG = 0.0
 
+# Envelope defaults (applied per-voice in the audio callback)
+DEFAULT_VOICE_ATTACK_S = 0.01   # ramp-up time in seconds
+DEFAULT_VOICE_RELEASE_S = 0.15  # ramp-down time in seconds
+
+# ─── Mix ─────────────────────────────────────────────────────────────────────
+# Shaper master gain (0..1). Beacon master is controlled via /beacon/master OSC.
+DEFAULT_SHAPER_MASTER = 0.8
+DEFAULT_BEACON_MASTER = 0.9
+
 # ─── Minilab3 (auxiliary MIDI controller) ────────────────────────────────────
 MINILAB_PORT_PATTERN = "Minilab"
 MINILAB_PANIC_PAD = 39

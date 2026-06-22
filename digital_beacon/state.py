@@ -25,6 +25,8 @@ class VoiceParams:
     gain: float = config.DEFAULT_VOICE_GAIN
     pan: float = config.DEFAULT_VOICE_PAN       # -1..+1
     phase: float = config.DEFAULT_VOICE_PHASE_DEG  # radians
+    attack_s: float = config.DEFAULT_VOICE_ATTACK_S
+    release_s: float = config.DEFAULT_VOICE_RELEASE_S
     active: bool = False
     voice_id: Optional[int] = None
 
@@ -54,7 +56,9 @@ class VoiceParameterStore:
         self._voices: dict[int, VoiceParams] = {}
         self._active_history: list[int] = []  # chronological, for note stealing
         self.f1: float = config.DEFAULT_F1
-        self._master_gain: float = 1.0
+        self._master_gain: float = config.DEFAULT_SHAPER_MASTER
+        self._global_attack_s: float = config.DEFAULT_VOICE_ATTACK_S
+        self._global_release_s: float = config.DEFAULT_VOICE_RELEASE_S
         self._on_change = on_change
         self._panic_callback: Optional[Callable[[], None]] = None
 
@@ -69,7 +73,10 @@ class VoiceParameterStore:
 
     def _ensure(self, n: int) -> None:
         if n not in self._voices:
-            self._voices[n] = VoiceParams(harmonic_n=n)
+            v = VoiceParams(harmonic_n=n)
+            v.attack_s = self._global_attack_s
+            v.release_s = self._global_release_s
+            self._voices[n] = v
 
     # ─── Beacon-driven lifecycle ──────────────────────────────────────────
 
@@ -137,6 +144,18 @@ class VoiceParameterStore:
             self._voices[harmonic_n].phase = math.radians(float(phase_deg) % 360)
         self._notify()
 
+    def set_attack(self, harmonic_n: int, attack_s: float) -> None:
+        with self._lock:
+            self._ensure(harmonic_n)
+            self._voices[harmonic_n].attack_s = max(0.0, min(5.0, float(attack_s)))
+        self._notify()
+
+    def set_release(self, harmonic_n: int, release_s: float) -> None:
+        with self._lock:
+            self._ensure(harmonic_n)
+            self._voices[harmonic_n].release_s = max(0.0, min(5.0, float(release_s)))
+        self._notify()
+
     def set_params(self, harmonic_n: int, **kwargs) -> None:
         with self._lock:
             self._ensure(harmonic_n)
@@ -147,6 +166,10 @@ class VoiceParameterStore:
                 v.pan = max(-1.0, min(1.0, float(kwargs["pan"])))
             if "phase_deg" in kwargs:
                 v.phase = math.radians(float(kwargs["phase_deg"]) % 360)
+            if "attack_s" in kwargs:
+                v.attack_s = max(0.0, min(5.0, float(kwargs["attack_s"])))
+            if "release_s" in kwargs:
+                v.release_s = max(0.0, min(5.0, float(kwargs["release_s"])))
         self._notify()
 
     def set_master_gain(self, gain: float) -> None:
@@ -156,6 +179,16 @@ class VoiceParameterStore:
     def get_master_gain(self) -> float:
         with self._lock:
             return self._master_gain
+
+    def set_global_attack(self, attack_s: float) -> None:
+        with self._lock:
+            self._global_attack_s = max(0.0, min(5.0, float(attack_s)))
+        self._notify()
+
+    def set_global_release(self, release_s: float) -> None:
+        with self._lock:
+            self._global_release_s = max(0.0, min(5.0, float(release_s)))
+        self._notify()
 
     def panic(self) -> None:
         with self._lock:
@@ -189,11 +222,16 @@ class VoiceParameterStore:
         with self._lock:
             return {
                 "f1": self.f1,
+                "master_gain": self._master_gain,
+                "global_attack_s": self._global_attack_s,
+                "global_release_s": self._global_release_s,
                 "voices": {
                     str(k): {
                         "gain": v.gain,
                         "pan": v.pan,
                         "phase_deg": round(math.degrees(v.phase) % 360, 1),
+                        "attack_s": v.attack_s,
+                        "release_s": v.release_s,
                         "active": v.active,
                         "freq": v.freq,
                     }

@@ -163,6 +163,47 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
         sc_osc.send_message("/beacon/master", [value])
         return {"ok": True, "master": value}
 
+    # ─── REST: Shaper per-harmonic control ────────────────────────────────
+    @app.post("/api/shaper/{n}/{param}")
+    async def set_shaper_param(n: int, param: str, body: dict):
+        """Set per-harmonic Shaper parameter.
+
+        param: gain | pan | phase_deg | attack_s | release_s
+        """
+        if n < 1 or n > config.N_BANDS:
+            raise HTTPException(400, f"n must be 1..{config.N_BANDS}")
+        value = float(body.get(param, 0.0))
+        if param == "gain":
+            store.set_gain(n, value)
+        elif param == "pan":
+            store.set_pan(n, value)
+        elif param == "phase_deg":
+            store.set_phase(n, value)
+        elif param == "attack_s":
+            store.set_attack(n, value)
+        elif param == "release_s":
+            store.set_release(n, value)
+        else:
+            raise HTTPException(400, f"unknown param: {param}")
+        return {"ok": True, "n": n, "param": param, "value": value}
+
+    @app.post("/api/shaper/global/{param}")
+    async def set_shaper_global(param: str, body: dict):
+        """Set global Shaper parameters.
+
+        param: attack | release | master
+        """
+        value = float(body.get(param, 0.0))
+        if param == "attack":
+            store.set_global_attack(value)
+        elif param == "release":
+            store.set_global_release(value)
+        elif param == "master":
+            store.set_master_gain(value)
+        else:
+            raise HTTPException(400, f"unknown global param: {param}")
+        return {"ok": True, "param": param, "value": value}
+
     # ─── REST: Presets (load/save/list) ──────────────────────────────────
     def _safe_name(name: str) -> str:
         s = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_")
