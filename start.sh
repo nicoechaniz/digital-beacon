@@ -120,10 +120,24 @@ for i in {1..20}; do
   fi
 done
 
-# Connect scsynth outputs to system playback
-sleep 0.3
-pw-jack jack_connect scsynth:output_1 system:playback_1 2>/dev/null || true
-pw-jack jack_connect scsynth:output_2 system:playback_2 2>/dev/null || true
+# Connect scsynth outputs to system playback.
+# With pw-jack the JACK client name is "SuperCollider" (not "scsynth" as in
+# old jackd setups). We try to connect to whichever playback sink exists:
+# the R24 (capture/playback card) and the Built-in Audio fallback.
+sleep 0.5
+CONNECTED=0
+for sink in 'R24 Analog Stereo' 'Built-in Audio Analog Stereo'; do
+  if pw-jack jack_connect "SuperCollider:out_1" "${sink}:playback_FL" 2>/dev/null; then
+    pw-jack jack_connect "SuperCollider:out_2" "${sink}:playback_FR" 2>/dev/null || true
+    echo "  SuperCollider:out connected to ${sink}"
+    CONNECTED=1
+    break
+  fi
+done
+if [[ $CONNECTED -eq 0 ]]; then
+  echo "  WARNING: could not auto-connect SuperCollider to any playback sink."
+  echo "  Run: pw-jack jack_connect SuperCollider:out_1 <sink>:playback_FL"
+fi
 
 # ─── 2. sclang (beacon.scd) ─────────────────────────────────────────────────
 echo ""
