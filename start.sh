@@ -57,10 +57,42 @@ else
   echo "Source: LIVE — SoundIn.ar(0) [R24 CH1]"
 fi
 
+# ─── 0. Pre-kill: ensure ports are free ─────────────────────────────────────
+# If a previous session died badly, scsynth/sclang may still hold the ports.
+# Killing them up-front prevents "address in use" failures on restart.
+prekill() {
+  echo ""
+  echo ">>> [0/4] Pre-kill: clearing zombies on 57110/57120/9001/9002 ..."
+  pkill -9 -f 'pw-jack scsynth'        2>/dev/null || true
+  pkill -9 -f 'sclang.*beacon.scd'     2>/dev/null || true
+  pkill -9 -f 'sclang.*digital-beacon' 2>/dev/null || true
+  pkill -9 -f 'f1_bridge'               2>/dev/null || true
+  pkill -9 -f 'digital_beacon.main'    2>/dev/null || true
+  sleep 1.0
+  # Belt-and-suspenders: explicitly free any port still bound
+  local freed=0
+  for port in 57110 57120 9001 9002; do
+    local pids
+    pids=$(ss -ulnpH 2>/dev/null | awk -v p=":$port" '$0 ~ p' | grep -oP 'pid=\K[0-9]+' | sort -u)
+    for pid in $pids; do
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -9 "$pid" 2>/dev/null || true
+        echo "  Killed PID $pid holding port $port"
+        freed=1
+      fi
+    done
+  done
+  if [[ $freed -eq 1 ]]; then
+    sleep 0.5
+  fi
+  echo "  Pre-kill done."
+}
+prekill
+
 # ─── 1. pw-jack + scsynth ────────────────────────────────────────────────────
 echo ""
 echo ">>> [1/4] Starting pw-jack scsynth on :57110 ..."
-pw-jack scsynth -u 57110 -i 2 -o 2 &
+pw-jack scsynth -u 57110 -i 2 -o 2 > /tmp/digital-beacon-scsynth.log 2>&1 &
 SCSYNTH_PID=$!
 echo "  scsynth PID: $SCSYNTH_PID"
 
@@ -69,6 +101,16 @@ for i in {1..20}; do
   if (echo > /dev/udp/127.0.0.1/57110) 2>/dev/null; then
     echo "  scsynth port 57110 open."
     break
+  fi
+  # Check if scsynth died (e.g. address in use)
+  if ! kill -0 $SCSYNTH_PID 2>/dev/null; then
+    echo ""
+    echo "ERROR: scsynth died on startup. Last log:"
+    cat /tmp/digital-beacon-scsynth.log 2>/dev/null | tail -10
+    echo ""
+    echo "Likely cause: port 57110 still in use. Pre-kill may have failed."
+    echo "Manual fix:   pkill -9 -f 'pw-jack scsynth'; sleep 2; ss -ulnp | grep 57110"
+    exit 1
   fi
   sleep 0.5
   if [[ $i -eq 20 ]]; then
@@ -85,18 +127,47 @@ pw-jack jack_connect scsynth:output_2 system:playback_2 2>/dev/null || true
 
 # ─── 2. sclang (beacon.scd) ─────────────────────────────────────────────────
 echo ""
-echo ">>> [2/4] Starting sclang beacon.scd (TTY wrapper, :57120) ..."
-# script(1) wrapper is required — sclang exits immediately without a TTY
-script -q -c "QT_QPA_PLATFORM=offscreen sclang -u 57120 beacon.scd" /tmp/digital-beacon-sclang.log &
+echo ">>> [2/4] Starting sclang beacon.scd (PTY, :57120) ..."
+# sclang needs a TTY or it exits. We use Python's pty module to allocate a
+# pseudo-TTY and a reader thread to capture output unbuffered.
+# This is more robust than script(1) + FIFO, which has buffering issues with
+# long-running processes.
+SCLANG_LOG=/tmp/digital-beacon-sclang.log
+rm -f "$SCLANG_LOG"
+./venv/bin/python3 -c "
+import os, pty, select, sys, threading
+log = '$SCLANG_LOG'
+pid, fd = pty.fork()
+if pid == 0:
+    # Child: exec sclang
+    os.environ['BEACON_SOURCE'] = '$BEACON_SOURCE'
+    os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+    os.execvp('sclang', ['sclang', '-u', '57120', 'beacon.scd'])
+else:
+    # Parent: read from pty, write to log
+    def reader():
+        with open(log, 'wb', buffering=0) as f:
+            while True:
+                try:
+                    r, _, _ = select.select([fd], [], [], 0.1)
+                    if not r: continue
+                    data = os.read(fd, 4096)
+                    if not data: break
+                    f.write(data)
+                except OSError:
+                    break
+    threading.Thread(target=reader, daemon=True).start()
+    os.waitpid(pid, 0)
+" </dev/null >/dev/null 2>&1 &
 SCLANG_PID=$!
-echo "  sclang PID: $SCLANG_PID  (log: /tmp/digital-beacon-sclang.log)"
+echo "  sclang PID: $SCLANG_PID  (log: $SCLANG_LOG)"
 
 # ─── 3. f1_bridge ────────────────────────────────────────────────────────────
 BRIDGE_PID=
 if [[ $RUN_BRIDGE -eq 1 ]]; then
   echo ""
   echo ">>> [3/4] Starting f1_bridge.py ..."
-  python3 f1_bridge.py > /tmp/digital-beacon-bridge.log 2>&1 &
+  ./venv/bin/python3 f1_bridge.py > /tmp/digital-beacon-bridge.log 2>&1 &
   BRIDGE_PID=$!
   echo "  bridge PID: $BRIDGE_PID  (log: /tmp/digital-beacon-bridge.log)"
 else
@@ -109,7 +180,7 @@ SHAPER_PID=
 if [[ $RUN_SHAPER -eq 1 ]]; then
   echo ""
   echo ">>> [4/4] Starting digital_beacon Shaper (MIDI + OSC + audio) ..."
-  python3 -m digital_beacon.main "${EXTRA_PY_ARGS[@]}" \
+  ./venv/bin/python3 -m digital_beacon.main "${EXTRA_PY_ARGS[@]}" \
     > /tmp/digital-beacon-shaper.log 2>&1 &
   SHAPER_PID=$!
   echo "  shaper PID: $SHAPER_PID  (log: /tmp/digital-beacon-shaper.log)"
@@ -122,12 +193,24 @@ fi
 cleanup() {
   echo ""
   echo "=== Shutting down digital-beacon ==="
+  # SIGTERM the tracked PIDs first
   for pid in $SHAPER_PID $BRIDGE_PID $SCLANG_PID $SCSYNTH_PID; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill -TERM "$pid" 2>/dev/null || true
     fi
   done
   sleep 0.5
+  # Kill anything else still holding our ports (orphans, grandchildren)
+  for port in 57110 57120 9001 9002; do
+    local pids
+    pids=$(ss -ulnpH 2>/dev/null | awk -v p=":$port" '$0 ~ p' | grep -oP 'pid=\K[0-9]+' | sort -u)
+    for pid in $pids; do
+      if kill -0 "$pid" 2>/dev/null; then
+        kill -KILL "$pid" 2>/dev/null || true
+      fi
+    done
+  done
+  # Final SIGKILL on tracked PIDs
   for pid in $SHAPER_PID $BRIDGE_PID $SCLANG_PID $SCSYNTH_PID; do
     if [[ -n "$pid" ]] && kill -0 "$pid" 2>/dev/null; then
       kill -KILL "$pid" 2>/dev/null || true
@@ -143,6 +226,7 @@ echo "=========================================="
 echo "  digital-beacon running"
 echo "  PIDs: scsynth=$SCSYNTH_PID sclang=$SCLANG_PID bridge=$BRIDGE_PID shaper=$SHAPER_PID"
 echo "  Logs:"
+echo "    scsynth: tail -f /tmp/digital-beacon-scsynth.log"
 echo "    sclang:  tail -f /tmp/digital-beacon-sclang.log"
 echo "    bridge:  tail -f /tmp/digital-beacon-bridge.log"
 echo "    shaper:  tail -f /tmp/digital-beacon-shaper.log"
@@ -150,7 +234,9 @@ echo "  Stop:    Ctrl-C"
 echo "=========================================="
 echo ""
 
-# Wait for any child to die
+# Wait for any tracked child to die. The scsynth-died check inside the boot
+# loop already exited with error; once we're here, all four are alive.
 wait -n $SCSYNTH_PID $SCLANG_PID ${BRIDGE_PID:-0} ${SHAPER_PID:-0} 2>/dev/null || true
-echo "A child process exited. Cleaning up..."
+EXITED=$?
+echo "A child process exited (wait rc=$EXITED). Cleaning up..."
 cleanup
