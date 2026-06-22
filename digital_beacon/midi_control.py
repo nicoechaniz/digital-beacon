@@ -12,14 +12,29 @@ logic) and adapted to:
 
 Pad layout (Launchpad Mini, Programmer or Note mode):
 
-    rows 0..3 (BOTTOM HALF)        rows 4..7 (TOP HALF)
-    momentary: note_on/note_off     toggle: latch on press, release on press
-    n = 1 + x + row*8               n = 1 + x + (row-4)*8
-    H1 (40 Hz) bottom-left           F1 again at D1
-    H32 (1280 Hz) bottom-right       F32 again at A8 (top-right)
+    rows 0..3 (BOTTOM HALF: physical H, G, F, E)
+    momentary: note_on/note_off
+    n = 1 + x + row*8
+    H1 (40 Hz) bottom-left                      <- F1
+    H8 (320 Hz) bottom-right                    <- F8
+    G1 (360 Hz)                                 <- F9
+    ...
+    E8 (1000 Hz)                                <- F32
+
+    rows 4..7 (TOP HALF: physical D, C, B, A)
+    toggle: latch on press, release on press
+    n = 1 + x + (row-4)*8
+    D1 (1040 Hz)                                <- F1 (toggle)
+    D8 (1320 Hz)                                <- F8
+    ...
+    A1 (1640 Hz)                                <- F25
+    A8 (1920 Hz) top-right                      <- F32
+
+    On this Launchpad Mini, note 0 = bottom-left (H1). So y=0 is the
+    BOTTOM row. row_from_bottom = y (not 7-y).
 
 X = column 0..7 left to right.
-Y = row 0..7 bottom to top (inverted from MIDI's top-to-bottom numbering).
+Y = row 0..7 BOTTOM to top (we verified this empirically with the user).
 
 Stride autodetect:
   - First incoming pad event sets the stride (8 for Note mode, 16 for Programmer).
@@ -219,10 +234,13 @@ class LaunchpadMiniControl:
         y = rel // self._stride
         if x >= 8 or y >= 8:
             return  # outside the 8x8 grid (right column or scene buttons)
-        # Bottom-up mapping: H1 (bottom-left physical, y=7) is F1.
-        # y=0 is the top row (A) on the hardware, y=7 is the bottom row (H).
-        # So row_from_bottom = 7 - y. F1..F8 on row H, F25..F32 on row A.
-        row_from_bottom = 7 - y
+        # IMPORTANT: on this Launchpad Mini (Programmer mode, stride 16),
+        # y=0 is the BOTTOM row (physical H), y=7 is the TOP row (physical A).
+        # This is the opposite of MIDI's top-to-bottom convention. We verified
+        # this with the user: note 0 = bottom-left = H1.
+        # So row_from_bottom = y directly (not 7 - y).
+        # F1..F8 on row y=0 (H), F25..F32 on row y=7 (A).
+        row_from_bottom = y
 
         if self._split_mode:
             if row_from_bottom < 4:

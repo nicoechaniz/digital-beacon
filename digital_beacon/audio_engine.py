@@ -92,6 +92,15 @@ class AudioEngine:
         voices = self._store.get_snapshot()
         mix = np.zeros((frames, 2), dtype=np.float32)
 
+        # Per-voice normalization: divide by sqrt(N) so the total energy stays
+        # constant regardless of how many harmonics are active. Without this,
+        # playing 8+ sines simultaneously saturates the output.
+        n_active = len(voices)
+        if n_active > 0:
+            norm = 1.0 / (n_active ** 0.5)
+        else:
+            norm = 1.0
+
         for n, params in voices.items():
             if params.freq <= 0:
                 continue
@@ -99,7 +108,7 @@ class AudioEngine:
             start_phase = self._phase_acc.get(n, 0.0)
             carrier_phases = 2.0 * np.pi * params.freq * t + start_phase
             sine = np.sin(carrier_phases + params.phase).astype(np.float32)
-            sine *= float(params.gain)
+            sine *= float(params.gain) * norm
             self._phase_acc[n] = (
                 carrier_phases[-1] + 2.0 * np.pi * params.freq / self._sample_rate
             ) % (2.0 * np.pi)
@@ -111,8 +120,12 @@ class AudioEngine:
         for n in [k for k in list(self._phase_acc) if k not in voices]:
             del self._phase_acc[n]
 
+        # Hard limiter: tanh saturation at the final stage. This prevents
+        # clipping even if many sines are stacked; the soft saturation also
+        # sounds more musical than a hard clip.
         mix *= self._store.get_master_gain()
-        np.clip(mix, -1.0, 1.0, out=mix)
+        # tanh with knee at 0.95 — full range below, soft saturation above
+        mix = np.tanh(mix * 1.05) * 0.95
         outdata[:] = mix
 
     def _on_stream_finished(self) -> None:

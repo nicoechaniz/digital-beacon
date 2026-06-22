@@ -130,8 +130,13 @@ server.doWhenBooted({
       };
       var bfmt = Mix(foas);
 
-      // Decode + master
-      var wet = FoaDecode.ar(bfmt, decoder);
+      // Decode + master + soft limiter
+      // Per-band normalization: divide the mix by sqrt(N active) so adding
+      // more bands doesn't blow up. Then a tanh soft clip as the final stage.
+      var nActive = 32;  // 32 bands total (we can be smarter later if needed)
+      var wet = FoaDecode.ar(bfmt, decoder) / nActive.sqrt;
+      // Soft limiter: tanh saturates at +/-1 with a smooth knee.
+      wet = tanh(wet * 1.2) * 0.9;
       Out.ar(out, wet * master);
     }).add;
   };
