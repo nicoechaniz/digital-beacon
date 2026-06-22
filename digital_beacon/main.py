@@ -23,7 +23,7 @@ import time
 from .state import VoiceParameterStore
 from .audio_engine import AudioEngine
 from .osc_receiver import ShaperOSCReceiver
-from .midi_control import LaunchpadMiniControl, Minilab3Control
+from .midi_control import LaunchpadMiniControl
 from . import config
 
 logging.basicConfig(
@@ -78,7 +78,6 @@ def main() -> None:
     osc = ShaperOSCReceiver(store)
 
     launchpad = LaunchpadMiniControl(store)
-    minilab = Minilab3Control(store)
 
     def _shutdown(signum, frame):
         log.info("Signal %d — shutting down", signum)
@@ -96,7 +95,6 @@ def main() -> None:
 
     if not args.no_midi:
         launchpad.start()
-        minilab.start()
 
     # Web dashboard (FastAPI in a thread)
     api_thread = None
@@ -120,7 +118,7 @@ def main() -> None:
                  config.BEACON_BROADCAST_PORT)
         log.info("  OSC :%d  (direct: /digital/*)", config.SHAPER_OSC_PORT)
     if not args.no_midi:
-        log.info("  MIDI Launchpad Mini + Minilab3 (auto-detect)")
+        log.info("  MIDI Launchpad Mini (auto-detect)")
     if not args.no_api:
         log.info("  Web  http://%s:%d", args.api_host, args.api_port)
 
@@ -132,7 +130,6 @@ def main() -> None:
     finally:
         if not args.no_midi:
             launchpad.stop()
-            minilab.stop()
         if not args.no_osc:
             osc.stop()
         audio.stop()

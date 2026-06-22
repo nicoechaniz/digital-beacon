@@ -62,8 +62,13 @@ LAUNCHPAD_PADS_X = 8
 LAUNCHPAD_PADS_Y = 8
 
 # Split mode: bottom 4 rows (32 pads) momentary, top 4 rows (32 pads) toggle
-# CC104 from NaturalHarmony toggles this
-SPLIT_MODE_ENABLED_BY_DEFAULT = False
+# CC104 from NaturalHarmony toggles this. Default ON for digital-beacon demo.
+SPLIT_MODE_ENABLED_BY_DEFAULT = True
+SPLIT_MODE_TOGGLE_CC = 104
+
+# Launchpad Mini Programmer-mode feedback colors (velocity = color)
+PAD_FEEDBACK_COLOR_ON = 60          # Green High
+PAD_FEEDBACK_COLOR_TOGGLE_ON = 21   # Orange
 
 # ─── Logging ─────────────────────────────────────────────────────────────────
 LOG_LEVEL = "INFO"

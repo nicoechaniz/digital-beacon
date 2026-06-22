@@ -103,11 +103,23 @@ server.doWhenBooted({
         ("on" ++ (i+1)).asSymbol.kr(defaultOns[i])
       });
       var master = \master.kr(master0);
+      // Band 32 (index 31) is a High-Pass Filter, not a BPF. Its center
+      // frequency is the cutoff. The \q32 control scales the cutoff: small
+      // q32 = high cutoff (above the band), large q32 = low cutoff.
+      // Default q32=1.0 means cutoff = f1*32 = 1280 Hz.
+      var q32 = \q32.kr(1.0).lag(0.05);
 
-      // Build 32 BPFs
+      // Build 31 BPFs + 1 HPF (last band)
       var bpfs = Array.fill(nBands, { |i|
         var freq = (f1 * (i+1)).clip(20.0, 18000.0);
-        var sig = BPF.ar(src, freq, 0.5);   // Q=0.5 (1 octave bandwidth) per band
+        var sig;
+        if (i == (nBands - 1)) {
+          // Band 32: HPF with cutoff at f1*32 (scaled by 1/q32)
+          var cutoff = (freq / q32).clip(20.0, 18000.0);
+          sig = HPF.ar(src, cutoff);
+        } {
+          sig = BPF.ar(src, freq, 0.5);  // Q=0.5 (1 octave bandwidth) per band
+        };
         sig * gains[i] * ons[i]
       });
 

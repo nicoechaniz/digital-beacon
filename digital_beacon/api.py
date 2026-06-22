@@ -1,43 +1,59 @@
 """Web control surface for digital-beacon.
 
 FastAPI app:
-  - GET  /              → static index.html (the dashboard)
-  - GET  /api/state     → full state snapshot (f1 + 32 voices)
-  - POST /api/panic     → panic all
-  - POST /api/harmonic/{n}/gain → set per-voice gain (0..1)
-  - POST /api/harmonic/{n}/on   → toggle voice on/off
-  - WS   /ws            → push state on every change (VoiceParameterStore._on_change)
+  - GET  /                          -> static/index.html (the dashboard)
+  - GET  /api/state                 -> f1 + 32 voices snapshot (Shaper side)
+  - POST /api/panic                 -> panic all (Shaper + beacon via /beacon/panic)
+  - POST /api/harmonic/{n}/{param}  -> proxy to SC beacon (gain/az/dist/q/on)
+  - POST /api/f1                    -> set f1 (re-tunes all band centers)
+  - POST /api/vsource               -> set varispeed rate
+  - POST /api/master                -> set master gain
+  - POST /api/reset                 -> reset beacon to defaults
+  - GET  /api/presets               -> list available preset files
+  - POST /api/presets/save          -> save current SC state as preset
+  - POST /api/presets/load          -> load a preset (pushes to SC)
+  - WS   /ws                        -> push Shaper state on every change
 
-Pattern adapted from NaturalHarmony/harmonic_shaper/api.py.
+Pattern adapted from NaturalHarmony/harmonic_shaper/api.py and
+beacon-spatial/webui.py (load/save/presets logic brought in).
 """
 
 import asyncio
 import json
 import logging
+import re
+import time
 from pathlib import Path
 from typing import Optional, Set
 
 try:
     from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
     from fastapi.responses import HTMLResponse
-    from fastapi.staticfiles import StaticFiles
     import uvicorn
     HAS_FASTAPI = True
 except ImportError:
     HAS_FASTAPI = False
 
+from pythonosc.udp_client import SimpleUDPClient
+
 from .state import VoiceParameterStore
+from . import config
 
 log = logging.getLogger(__name__)
 
 STATIC_DIR = Path(__file__).parent.parent / "static"
+PRESETS_DIR = Path(__file__).parent.parent / "configs"
+PRESETS_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def create_app(store: VoiceParameterStore) -> "FastAPI":
     if not HAS_FASTAPI:
         raise ImportError("fastapi and uvicorn are required. pip install fastapi uvicorn[standard]")
 
-    app = FastAPI(title="digital-beacon", version="0.1.0")
+    app = FastAPI(title="digital-beacon", version="0.2.0")
+
+    # OSC client to the SC beacon engine
+    sc_osc = SimpleUDPClient(config.SCLANG_HOST, config.SCLANG_OSC_PORT)
 
     # ─── WebSocket connection manager ─────────────────────────────────────
     class _WsManager:
@@ -89,7 +105,7 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
             )
         return HTMLResponse(index.read_text())
 
-    # ─── REST ────────────────────────────────────────────────────────────
+    # ─── REST: Shaper state ──────────────────────────────────────────────
     @app.get("/api/state")
     async def get_state():
         return store.to_dict()
@@ -97,42 +113,96 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
     @app.post("/api/panic")
     async def panic():
         store.panic()
+        sc_osc.send_message("/beacon/panic", [])
         return {"ok": True, "action": "panic"}
 
-    @app.post("/api/harmonic/{n}/gain")
-    async def set_voice_gain(n: int, body: dict):
-        if n < 1 or n > 32:
-            raise HTTPException(400, "n must be 1..32")
-        gain = float(body.get("gain", 0.5))
-        store.set_gain(n, max(0.0, min(1.0, gain)))
-        return {"ok": True, "n": n, "gain": gain}
+    # ─── REST: SC beacon control (proxy to sclang:57120) ─────────────────
+    @app.post("/api/harmonic/{n}/{param}")
+    async def set_band_param(n: int, param: str, body: dict):
+        """Proxy band control to the SC beacon engine.
 
-    @app.post("/api/harmonic/{n}/on")
-    async def set_voice_on(n: int, body: dict):
-        """Toggle or set a voice active. Sends /beacon/voice/on to the audio
-        engine (which makes the Shaper render the sine) and updates store."""
+        param: gain | az | dist | q | on
+        """
         if n < 1 or n > 32:
             raise HTTPException(400, "n must be 1..32")
-        on = bool(body.get("on", True))
-        if on:
-            # Re-trigger with current f1
-            freq = store.f1 * n
-            vid = next(_vid_iter())
-            store.voice_on(n, vid, freq)
+        if param not in ("gain", "az", "dist", "q", "on"):
+            raise HTTPException(400, f"unknown param: {param}")
+        addr = f"/beacon/{param}/{n}"
+        if param == "on":
+            value = 1.0 if body.get("on", True) else 0.0
         else:
-            # Find the active voice_id for this harmonic_n and turn it off
-            snap = store.get_all_snapshot()
-            entry = snap.get(n)
-            if entry is not None and entry.voice_id is not None:
-                store.voice_off(entry.voice_id)
-        return {"ok": True, "n": n, "on": on}
+            value = float(body.get(param, 0.0))
+        sc_osc.send_message(addr, [value])
+        return {"ok": True, "n": n, "param": param, "value": value}
 
-    # Monotonic voice_id generator for the API
-    def _vid_iter():
-        i = 10000
-        while True:
-            yield i
-            i += 1
+    @app.post("/api/reset")
+    async def reset():
+        sc_osc.send_message("/beacon/reset", [])
+        return {"ok": True}
+
+    @app.post("/api/f1")
+    async def set_f1(body: dict):
+        hz = float(body.get("f1", 40.0))
+        sc_osc.send_message("/beacon/f1", [hz])
+        return {"ok": True, "f1": hz}
+
+    @app.post("/api/vsource")
+    async def set_vsource(body: dict):
+        rate = float(body.get("rate", 1.0))
+        sc_osc.send_message("/beacon/vsource", [rate])
+        return {"ok": True, "rate": rate}
+
+    @app.post("/api/master")
+    async def set_master(body: dict):
+        value = float(body.get("master", 0.9))
+        sc_osc.send_message("/beacon/master", [value])
+        return {"ok": True, "master": value}
+
+    # ─── REST: Presets (load/save/list) ──────────────────────────────────
+    def _safe_name(name: str) -> str:
+        s = re.sub(r"[^A-Za-z0-9._-]+", "_", name).strip("_")
+        return s or "preset"
+
+    @app.get("/api/presets")
+    async def list_presets():
+        files = sorted(p for p in PRESETS_DIR.glob("*.json"))
+        return {"ok": True, "presets": [p.stem for p in files]}
+
+    @app.post("/api/presets/save")
+    async def save_preset(body: dict):
+        name = _safe_name(body.get("name", "").strip())
+        if not name:
+            return {"ok": False, "error": "No name"}
+        state = body.get("state", {})
+        path = PRESETS_DIR / f"{name}.json"
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+        return {"ok": True, "name": name, "path": str(path)}
+
+    @app.post("/api/presets/load")
+    async def load_preset(body: dict):
+        name = body.get("name", "").strip()
+        if not name:
+            return {"ok": False, "error": "No name"}
+        path = PRESETS_DIR / f"{_safe_name(name)}.json"
+        if not path.exists():
+            return {"ok": False, "error": "Not found"}
+        with open(path) as f:
+            state = json.load(f)
+        # Apply to SC
+        for band in state.get("bands", []):
+            n = band.get("n", 0)
+            if not (1 <= n <= 32):
+                continue
+            for param in ("gain", "az", "dist", "q", "on"):
+                if param in band:
+                    sc_osc.send_message(f"/beacon/{param}/{n}", [float(band[param])])
+        if "master" in state:
+            sc_osc.send_message("/beacon/master", [float(state["master"])])
+        if "mix" in state:
+            # In 32-band mode we don't have a global wet/dry mix; skip.
+            pass
+        return {"ok": True, "name": name, "state": state}
 
     # ─── WebSocket ───────────────────────────────────────────────────────
     @app.websocket("/ws")

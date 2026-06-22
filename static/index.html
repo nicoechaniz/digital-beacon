@@ -1,263 +1,552 @@
-<!doctype html>
-<html lang="en">
+<!DOCTYPE html>
+<html>
 <head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>digital-beacon</title>
-<style>
-  :root {
-    --bg: #0d0d11;
-    --panel: #16161d;
-    --border: #2a2a35;
-    --text: #e4e4ea;
-    --muted: #6c6c7a;
-    --accent: #5ed3a3;
-    --hot: #ff6a4d;
-    --dim: #2e3440;
-  }
-  * { box-sizing: border-box; }
-  body {
-    margin: 0;
-    background: var(--bg);
-    color: var(--text);
-    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
-    font-size: 13px;
-    padding: 16px;
-  }
-  h1 {
-    font-size: 18px;
-    font-weight: 500;
-    margin: 0 0 4px 0;
-    letter-spacing: 0.5px;
-  }
-  .sub { color: var(--muted); font-size: 11px; margin-bottom: 16px; }
-  .header {
-    display: flex;
-    align-items: center;
-    gap: 24px;
-    margin-bottom: 16px;
-    flex-wrap: wrap;
-  }
-  .pill {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 12px;
-  }
-  .pill b { color: var(--accent); font-weight: 600; }
-  button {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 8px 14px;
-    cursor: pointer;
-    font-family: inherit;
-    font-size: 12px;
-  }
-  button:hover { border-color: var(--accent); }
-  button.danger { color: var(--hot); border-color: #553; }
-  button.danger:hover { background: var(--hot); color: #fff; }
-
-  .grid {
-    display: grid;
-    grid-template-columns: repeat(8, 1fr);
-    gap: 6px;
-    margin-bottom: 16px;
-  }
-  .band {
-    background: var(--panel);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 8px;
-    position: relative;
-    transition: border-color 80ms, background 80ms;
-    user-select: none;
-  }
-  .band.active {
-    border-color: var(--accent);
-    background: #1c2a25;
-  }
-  .band-head {
-    display: flex;
-    justify-content: space-between;
-    align-items: baseline;
-    margin-bottom: 6px;
-  }
-  .band-n {
-    font-size: 11px;
-    color: var(--muted);
-  }
-  .band-hz {
-    font-size: 10px;
-    color: var(--muted);
-  }
-  .gain-bar {
-    height: 6px;
-    background: var(--dim);
-    border-radius: 3px;
-    position: relative;
-    cursor: pointer;
-    margin-bottom: 4px;
-  }
-  .gain-fill {
-    position: absolute;
-    left: 0; top: 0; bottom: 0;
-    background: var(--accent);
-    border-radius: 3px;
-    transition: width 60ms;
-  }
-  .pad-led {
-    height: 4px;
-    background: var(--dim);
-    border-radius: 2px;
-    margin-top: 4px;
-    position: relative;
-  }
-  .pad-led.on { background: var(--hot); }
-  .band-controls {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-top: 6px;
-    font-size: 10px;
-    color: var(--muted);
-  }
-  .toggle {
-    cursor: pointer;
-    padding: 2px 6px;
-    border-radius: 3px;
-    border: 1px solid var(--border);
-  }
-  .toggle.on { color: var(--accent); border-color: var(--accent); }
-  .toggle.off { color: var(--muted); }
-
-  .conn { color: var(--muted); font-size: 10px; }
-  .conn.ok { color: var(--accent); }
-  .conn.bad { color: var(--hot); }
-</style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>digital-beacon — SC control</title>
+    <style>
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background: #0a0a0f;
+            color: #e0e0e0;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            padding: 20px;
+            min-height: 100vh;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 8px;
+            font-weight: 300;
+            letter-spacing: 2px;
+            font-size: 1.5rem;
+        }
+        .subtitle {
+            text-align: center;
+            color: #666;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+        }
+        .spectrum {
+            display: flex;
+            align-items: flex-end;
+            justify-content: center;
+            gap: 2px;
+            height: 60px;
+            max-width: 1400px;
+            margin: 0 auto 20px;
+            padding: 8px;
+            background: #0d0d14;
+            border-radius: 8px;
+            border: 1px solid #1a1a2e;
+        }
+        .spectrum-bar {
+            flex: 1;
+            min-width: 2px;
+            border-radius: 2px 2px 0 0;
+            transition: height 0.1s, background 0.1s;
+            opacity: 0.85;
+        }
+        .header {
+            display: flex;
+            justify-content: center;
+            gap: 24px;
+            align-items: center;
+            margin-bottom: 16px;
+            flex-wrap: wrap;
+        }
+        .pill {
+            background: #12121a;
+            border: 1px solid #1a1a2e;
+            padding: 6px 14px;
+            border-radius: 6px;
+            font-size: 0.8rem;
+        }
+        .pill b { color: #1abc9c; }
+        .conn-ok { color: #2ecc71; }
+        .conn-bad { color: #e74c3c; }
+        button.action {
+            padding: 8px 16px;
+            border-radius: 6px;
+            border: 1px solid #e74c3c;
+            background: transparent;
+            color: #e74c3c;
+            cursor: pointer;
+            font-size: 0.75rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        button.action:hover { background: #e74c3c; color: #000; }
+        .grid {
+            display: grid;
+            grid-template-columns: repeat(8, 1fr);
+            gap: 6px;
+            max-width: 1400px;
+            margin: 0 auto 20px;
+        }
+        .band {
+            background: #12121a;
+            border-radius: 8px;
+            padding: 8px 4px;
+            text-align: center;
+            border: 1px solid #1a1a2e;
+            transition: border-color 0.15s, opacity 0.15s, background 0.15s;
+            position: relative;
+        }
+        .band.sc-active {
+            border-color: #1abc9c;
+            background: #0e1c18;
+        }
+        .led {
+            position: absolute;
+            top: 4px;
+            right: 4px;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #333;
+            transition: background 0.05s, box-shadow 0.05s;
+        }
+        .led.on {
+            background: #e74c3c;
+            box-shadow: 0 0 8px #e74c3c;
+        }
+        .band-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            margin-bottom: 4px;
+            color: #1abc9c;
+            letter-spacing: 0.5px;
+        }
+        .band-freq {
+            font-size: 0.6rem;
+            color: #888;
+            margin-bottom: 6px;
+        }
+        .fader-container {
+            height: 80px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-bottom: 6px;
+        }
+        input[type=range][orient=vertical] {
+            writing-mode: bt-lr;
+            -webkit-appearance: slider-vertical;
+            width: 18px;
+            height: 70px;
+        }
+        input[type=range] {
+            -webkit-appearance: none;
+            background: transparent;
+            cursor: pointer;
+        }
+        input[type=range]::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 12px;
+            width: 12px;
+            border-radius: 50%;
+            background: currentColor;
+            margin-top: -4px;
+            box-shadow: 0 0 4px currentColor;
+        }
+        input[type=range]::-webkit-slider-runnable-track {
+            height: 3px;
+            background: #2a2a3e;
+            border-radius: 2px;
+        }
+        .param {
+            margin-bottom: 4px;
+        }
+        .param label {
+            display: block;
+            font-size: 0.5rem;
+            color: #888;
+            margin-bottom: 1px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        .param input[type=range] {
+            width: 100%;
+        }
+        .value {
+            font-size: 0.55rem;
+            color: #aaa;
+            margin-top: 1px;
+        }
+        .solo-btn {
+            display: inline-block;
+            padding: 2px 6px;
+            font-size: 0.5rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            text-transform: uppercase;
+            border: 1px solid #444;
+            border-radius: 3px;
+            background: transparent;
+            color: #666;
+            cursor: pointer;
+            margin-top: 2px;
+            transition: all 0.15s;
+        }
+        .solo-btn.on {
+            background: #1abc9c;
+            color: #000;
+            border-color: #1abc9c;
+            box-shadow: 0 0 6px #1abc9c;
+        }
+        .mix-section {
+            max-width: 1400px;
+            margin: 0 auto 16px;
+            background: #12121a;
+            border-radius: 8px;
+            padding: 12px 16px;
+            border: 1px solid #1a1a2e;
+        }
+        .mix-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 16px;
+        }
+        .mix-param {
+            text-align: center;
+        }
+        .mix-param input[type=range] {
+            width: 100%;
+        }
+        @media (max-width: 1200px) {
+            .grid { grid-template-columns: repeat(6, 1fr); }
+        }
+        @media (max-width: 900px) {
+            .grid { grid-template-columns: repeat(4, 1fr); }
+        }
+        @media (max-width: 600px) {
+            .grid { grid-template-columns: repeat(2, 1fr); }
+        }
+    </style>
 </head>
 <body>
-  <h1>digital-beacon</h1>
-  <div class="sub">32-band binaural spatializer · 1:1 with f1·N · Shaper additive synth</div>
+    <h1>digital-beacon</h1>
+    <p class="subtitle">32-band SC control · LED = Shaper active · Launchpad split mode</p>
 
-  <div class="header">
-    <div class="pill">f1 = <b id="f1-val">40.0</b> Hz</div>
-    <div class="pill">active voices = <b id="active-count">0</b> / 32</div>
-    <div class="pill">WS <span id="conn" class="conn bad">disconnected</span></div>
-    <button class="danger" onclick="panic()">PANIC</button>
-  </div>
+    <div class="spectrum" id="spectrum"></div>
 
-  <div class="grid" id="grid"></div>
+    <div class="header">
+        <div class="pill">f1 = <b id="f1-val">40.0</b> Hz</div>
+        <div class="pill">Shaper voices = <b id="active-count">0</b> / 32</div>
+        <div class="pill">WS <span id="conn" class="conn-bad">disconnected</span></div>
+        <button class="action" onclick="panic()">PANIC</button>
+        <button class="action" style="border-color:#3498db; color:#3498db;" onclick="resetBeacon()">RESET</button>
+    </div>
 
-  <div class="sub" style="margin-top: 12px;">
-    Click a bar to set gain (0..1). Click a band to toggle on/off. The red LED lights when the Launchpad pad is held.
-  </div>
+    <div class="grid" id="grid"></div>
+
+    <div class="mix-section">
+        <div class="mix-grid">
+            <div class="mix-param">
+                <label style="display:block; font-size:0.65rem; color:#1abc9c; margin-bottom:6px;">MASTER (SC)</label>
+                <input type="range" min="0" max="3" step="0.05" value="0.9" id="master"
+                       oninput="sendMaster(this.value); show(this, 'vmaster')">
+                <div class="value" id="vmaster">0.90</div>
+            </div>
+            <div class="mix-param">
+                <label style="display:block; font-size:0.65rem; color:#1abc9c; margin-bottom:6px;">f1 (via /beacon/f1)</label>
+                <input type="range" min="20" max="80" step="1" value="40" id="f1-slider"
+                       oninput="sendF1(this.value); show(this, 'vf1')">
+                <div class="value" id="vf1">40 Hz</div>
+            </div>
+            <div class="mix-param">
+                <label style="display:block; font-size:0.65rem; color:#1abc9c; margin-bottom:6px;">vsrate (varispeed)</label>
+                <input type="range" min="0.25" max="2.0" step="0.01" value="1.0" id="vsrate-slider"
+                       oninput="sendVsrate(this.value); show(this, 'vvsrate')">
+                <div class="value" id="vvsrate">1.00</div>
+            </div>
+        </div>
+    </div>
+
+    <div class="mix-section">
+        <h2 style="font-size:0.75rem; color:#888; text-transform:uppercase; letter-spacing:2px; margin-bottom:10px;">Presets</h2>
+        <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; align-items:end;">
+            <div>
+                <label style="display:block; font-size:0.55rem; color:#888; text-transform:uppercase; margin-bottom:4px;">Save as</label>
+                <input type="text" id="save-name" placeholder="my-preset"
+                       style="width:100%; background:#0d0d14; border:1px solid #2a2a3e; color:#e0e0e0; padding:6px 8px; border-radius:4px; font-size:0.8rem;">
+                <button onclick="savePreset()" style="margin-top:6px; width:100%; padding:6px; border:1px solid #2ecc71; color:#2ecc71; background:transparent; border-radius:4px; cursor:pointer; font-size:0.7rem; font-weight:600; text-transform:uppercase;">Save</button>
+            </div>
+            <div>
+                <label style="display:block; font-size:0.55rem; color:#888; text-transform:uppercase; margin-bottom:4px;">Load preset</label>
+                <select id="load-select" style="width:100%; background:#0d0d14; border:1px solid #2a2a3e; color:#e0e0e0; padding:6px 8px; border-radius:4px; font-size:0.8rem;">
+                    <option value="">-- select --</option>
+                </select>
+                <button onclick="loadPreset()" style="margin-top:6px; width:100%; padding:6px; border:1px solid #3498db; color:#3498db; background:transparent; border-radius:4px; cursor:pointer; font-size:0.7rem; font-weight:600; text-transform:uppercase;">Load</button>
+            </div>
+            <div>
+                <label style="display:block; font-size:0.55rem; color:#888; text-transform:uppercase; margin-bottom:4px;">Status</label>
+                <div id="preset-status" style="padding:8px; color:#888; font-size:0.75rem;">Ready</div>
+            </div>
+        </div>
+    </div>
 
 <script>
 const N_BANDS = 32;
 const grid = document.getElementById('grid');
+const spectrum = document.getElementById('spectrum');
 const f1El = document.getElementById('f1-val');
 const activeEl = document.getElementById('active-count');
 const connEl = document.getElementById('conn');
 
-// Build the 8x4 grid (32 cards)
+// Build spectrum
+for (let i = 0; i < N_BANDS; i++) {
+  const bar = document.createElement('div');
+  bar.className = 'spectrum-bar';
+  bar.id = 'spec' + (i + 1);
+  bar.style.background = '#3498db';
+  bar.style.height = '10%';
+  spectrum.appendChild(bar);
+}
+
+// Build 32 cards — beacon control (gain/az/dist/q/on) + LED for Shaper
 const cards = [];
+const scState = { on: {}, gain: {}, az: {}, dist: {}, q: {} };
 for (let n = 1; n <= N_BANDS; n++) {
   const card = document.createElement('div');
   card.className = 'band';
   card.dataset.n = n;
   card.innerHTML = `
-    <div class="band-head">
-      <span class="band-n">H${String(n).padStart(2,'0')}</span>
-      <span class="band-hz">${(40 * n).toFixed(0)} Hz</span>
+    <div class="led" data-role="led"></div>
+    <div class="band-label">H${String(n).padStart(2, '0')}</div>
+    <div class="band-freq">${(40 * n).toFixed(0)} Hz</div>
+    <div class="fader-container" style="color: #1abc9c;">
+      <input type="range" orient="vertical" min="0" max="3" step="0.05" value="0.8"
+             id="g${n}" oninput="sendParam('gain', ${n}, this.value); showFloat(this, 'g${n}')">
     </div>
-    <div class="gain-bar" data-role="gain">
-      <div class="gain-fill" data-role="gain-fill" style="width:50%"></div>
+    <div class="value" id="g${n}">0.80</div>
+    <div class="param">
+      <label>Az</label>
+      <input type="range" min="-180" max="180" step="1" value="0"
+             id="a${n}" oninput="sendParam('az', ${n}, this.value); showInt(this, 'a${n}', '°')">
+      <div class="value" id="a${n}">0°</div>
     </div>
-    <div class="pad-led" data-role="pad-led"></div>
-    <div class="band-controls">
-      <span data-role="gain-label">0.50</span>
-      <span class="toggle on" data-role="toggle">on</span>
+    <div class="param">
+      <label>Dist</label>
+      <input type="range" min="0" max="10" step="0.1" value="2.0"
+             id="d${n}" oninput="sendParam('dist', ${n}, this.value); showFloat(this, 'd${n}')">
+      <div class="value" id="d${n}">2.0</div>
     </div>
+    <div class="param">
+      <label>Q</label>
+      <input type="range" min="0.01" max="2.0" step="0.01" value="0.5"
+             id="q${n}" oninput="sendParam('q', ${n}, this.value); showFloat(this, 'q${n}')">
+      <div class="value" id="q${n}">0.50</div>
+    </div>
+    <button class="solo-btn on" id="on${n}" onclick="toggleOn(${n}, this)">ON</button>
   `;
-  // Click on gain bar → set gain by click x-position
-  const bar = card.querySelector('[data-role="gain"]');
-  bar.addEventListener('click', (ev) => {
-    const rect = bar.getBoundingClientRect();
-    const x = (ev.clientX - rect.left) / rect.width;
-    const gain = Math.max(0, Math.min(1, x));
-    setGain(n, gain);
-  });
-  // Click on card (outside gain bar) → toggle on/off
-  card.addEventListener('click', (ev) => {
-    if (ev.target.closest('[data-role="gain"]')) return;
-    toggleOn(n);
-  });
   grid.appendChild(card);
   cards.push(card);
+  scState.on[n] = 1; scState.gain[n] = 0.8; scState.az[n] = 0; scState.dist[n] = 2.0; scState.q[n] = 0.5;
 }
 
-let state = { f1: 40.0, voices: {} };
+let shaperState = { f1: 40.0, voices: {} };
 
-function applyState(s) {
-  state = s;
+function applyShaperState(s) {
+  shaperState = s;
   f1El.textContent = (s.f1 || 40).toFixed(1);
   let active = 0;
   for (let n = 1; n <= N_BANDS; n++) {
     const v = s.voices[String(n)] || {};
-    const card = cards[n-1];
-    const isActive = !!v.active;
-    if (isActive) active++;
-    card.classList.toggle('active', isActive);
-    // Pad LED: bright red when active
-    const led = card.querySelector('[data-role="pad-led"]');
-    led.classList.toggle('on', isActive);
-    // Gain
-    const gain = v.gain !== undefined ? v.gain : 0.5;
-    card.querySelector('[data-role="gain-fill"]').style.width = (gain * 100) + '%';
-    card.querySelector('[data-role="gain-label"]').textContent = gain.toFixed(2);
+    const isShaperActive = !!v.active;
+    if (isShaperActive) active++;
+    // Only the LED reflects Shaper activity
+    const card = cards[n - 1];
+    const led = card.querySelector('[data-role="led"]');
+    led.classList.toggle('on', isShaperActive);
+    // Spectrum
+    const spec = document.getElementById('spec' + n);
+    if (spec) {
+      const gain = (v.gain !== undefined ? v.gain : 0.5) * (isShaperActive ? 1 : 0.3);
+      spec.style.height = Math.max(10, gain * 100) + '%';
+      spec.style.background = isShaperActive ? '#e74c3c' : '#3498db';
+    }
   }
   activeEl.textContent = active;
+}
+
+function applyScState() {
+  for (let n = 1; n <= N_BANDS; n++) {
+    const card = cards[n - 1];
+    const isOn = scState.on[n] > 0;
+    card.classList.toggle('sc-active', isOn);
+    const btn = card.querySelector('#on' + n);
+    if (isOn) { btn.classList.add('on'); btn.textContent = 'ON'; }
+    else { btn.classList.remove('on'); btn.textContent = 'OFF'; }
+    const gIn = card.querySelector('#g' + n);
+    if (document.activeElement !== gIn) {
+      gIn.value = scState.gain[n];
+      card.querySelector('#g' + n + ' ~ .value, .value[id="g' + n + '"]').textContent = scState.gain[n].toFixed(2);
+    }
+    const aIn = card.querySelector('#a' + n);
+    if (document.activeElement !== aIn) {
+      aIn.value = scState.az[n];
+      card.querySelector('#a' + n + ' ~ .value, .value[id="a' + n + '"]').textContent = Math.round(scState.az[n]) + '°';
+    }
+    const dIn = card.querySelector('#d' + n);
+    if (document.activeElement !== dIn) {
+      dIn.value = scState.dist[n];
+      card.querySelector('#d' + n + ' ~ .value, .value[id="d' + n + '"]').textContent = scState.dist[n].toFixed(1);
+    }
+    const qIn = card.querySelector('#q' + n);
+    if (document.activeElement !== qIn) {
+      qIn.value = scState.q[n];
+      card.querySelector('#q' + n + ' ~ .value, .value[id="q' + n + '"]').textContent = scState.q[n].toFixed(2);
+    }
+  }
 }
 
 async function api(path, method='GET', body=null) {
   const opts = { method, headers: {'Content-Type':'application/json'} };
   if (body) opts.body = JSON.stringify(body);
-  const r = await fetch(path, opts);
-  return await r.json();
+  try {
+    const r = await fetch(path, opts);
+    return await r.json();
+  } catch(e) { return null; }
 }
 
-function setGain(n, gain) {
-  api(`/api/harmonic/${n}/gain`, 'POST', {gain});
+function sendParam(param, n, value) {
+  scState[param][n] = parseFloat(value);
+  api(`/api/harmonic/${n}/${param}`, 'POST', {[param]: parseFloat(value)});
 }
-function toggleOn(n) {
-  const v = state.voices[String(n)] || {};
-  const on = !v.active;
-  api(`/api/harmonic/${n}/on`, 'POST', {on});
+function sendMaster(value) {
+  api('/api/master', 'POST', {master: parseFloat(value)});
 }
-function panic() {
-  api('/api/panic', 'POST');
+function sendF1(value) {
+  api('/api/f1', 'POST', {f1: parseFloat(value)});
+}
+function sendVsrate(value) {
+  api('/api/vsource', 'POST', {rate: parseFloat(value)});
+}
+function toggleOn(n, btn) {
+  const newOn = scState.on[n] ? 0 : 1;
+  scState.on[n] = newOn;
+  applyScState();
+  api(`/api/harmonic/${n}/on`, 'POST', {on: newOn === 1});
+}
+function panic() { api('/api/panic', 'POST'); }
+function resetBeacon() { api('/api/reset', 'POST'); for (let n=1; n<=N_BANDS; n++) { scState.on[n]=1; scState.gain[n]=0.8; scState.az[n]=0; scState.dist[n]=2.0; scState.q[n]=0.5; } applyScState(); }
+
+async function gatherScState() {
+  const bands = [];
+  for (let n = 1; n <= N_BANDS; n++) {
+    bands.push({
+      n: n,
+      gain: scState.gain[n],
+      az: scState.az[n],
+      dist: scState.dist[n],
+      q: scState.q[n],
+      on: scState.on[n],
+    });
+  }
+  const master = parseFloat(document.getElementById('master').value);
+  return { bands, master };
+}
+
+async function applyScStateFromPreset(state) {
+  for (const band of (state.bands || [])) {
+    const n = band.n;
+    if (n < 1 || n > 32) continue;
+    scState.gain[n] = band.gain;
+    scState.az[n] = band.az;
+    scState.dist[n] = band.dist;
+    scState.q[n] = band.q !== undefined ? band.q : 0.5;
+    scState.on[n] = band.on !== undefined ? band.on : 1;
+    // Push to SC
+    api(`/api/harmonic/${n}/gain`, 'POST', {gain: band.gain});
+    api(`/api/harmonic/${n}/az`, 'POST', {az: band.az});
+    api(`/api/harmonic/${n}/dist`, 'POST', {dist: band.dist});
+    api(`/api/harmonic/${n}/on`, 'POST', {on: band.on === 1});
+  }
+  if (state.master !== undefined) {
+    document.getElementById('master').value = state.master;
+    api('/api/master', 'POST', {master: state.master});
+  }
+  applyScState();
+}
+
+function setPresetStatus(msg, color) {
+  const el = document.getElementById('preset-status');
+  if (el) { el.textContent = msg; el.style.color = color || '#888'; }
+}
+
+async function savePreset() {
+  const nameInput = document.getElementById('save-name');
+  const name = nameInput.value.trim();
+  if (!name) {
+    setPresetStatus('Enter a name', '#e67e22');
+    return;
+  }
+  const state = await gatherScState();
+  const result = await api('/api/presets/save', 'POST', {name, state});
+  if (result && result.ok) {
+    setPresetStatus('Saved: ' + result.name, '#2ecc71');
+    await loadPresetList();
+  } else {
+    setPresetStatus('Error: ' + (result && result.error), '#e74c3c');
+  }
+}
+
+async function loadPreset() {
+  const sel = document.getElementById('load-select');
+  const name = sel.value;
+  if (!name) { setPresetStatus('Select a preset', '#e67e22'); return; }
+  const result = await api('/api/presets/load', 'POST', {name});
+  if (result && result.ok && result.state) {
+    await applyScStateFromPreset(result.state);
+    setPresetStatus('Loaded: ' + result.name, '#2ecc71');
+  } else {
+    setPresetStatus('Error loading', '#e74c3c');
+  }
+}
+
+async function loadPresetList() {
+  const result = await api('/api/presets');
+  const sel = document.getElementById('load-select');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">-- select --</option>';
+  if (result && result.presets) {
+    for (const p of result.presets) {
+      const opt = document.createElement('option');
+      opt.value = p;
+      opt.textContent = p;
+      sel.appendChild(opt);
+    }
+  }
+}
+loadPresetList();
+
+function showFloat(input, id) {
+  const v = document.getElementById(id);
+  if (v) v.textContent = parseFloat(input.value).toFixed(2);
+}
+function showInt(input, id, suffix) {
+  const v = document.getElementById(id);
+  if (v) v.textContent = Math.round(input.value) + (suffix || '');
 }
 
 function connect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
   const ws = new WebSocket(`${proto}://${location.host}/ws`);
-  ws.onopen = () => { connEl.textContent='connected'; connEl.className='conn ok'; };
+  ws.onopen = () => { connEl.textContent = 'connected'; connEl.className = 'conn-ok'; };
   ws.onclose = () => {
-    connEl.textContent='disconnected'; connEl.className='conn bad';
+    connEl.textContent = 'disconnected'; connEl.className = 'conn-bad';
     setTimeout(connect, 1000);
   };
   ws.onerror = () => ws.close();
   ws.onmessage = (ev) => {
-    try { applyState(JSON.parse(ev.data)); } catch(e) { console.error(e); }
+    try { applyShaperState(JSON.parse(ev.data)); } catch(e) { console.error(e); }
   };
 }
 connect();
-
-// Initial state pull
-api('/api/state').then(applyState).catch(e => console.error(e));
+applyScState();
+api('/api/state').then(s => { if (s) applyShaperState(s); }).catch(e => console.error(e));
 </script>
 </body>
 </html>
