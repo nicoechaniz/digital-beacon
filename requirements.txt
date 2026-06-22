@@ -1,0 +1,6 @@
+# digital-beacon runtime deps
+python-osc>=1.8
+mido>=1.3
+python-rtmidi>=1.5
+sounddevice>=0.4.6
+numpy>=1.24

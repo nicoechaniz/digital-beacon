@@ -1,0 +1,25 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.venv/
+venv/
+*.egg-info/
+
+# venv from sibling projects (don't shadow)
+.env
+
+# OSC / runtime
+*.log
+logs/
+.cache/
+
+# Recorded audio
+*.wav
+*.aif
+recordings/
+
+# User presets (local-only, like beacon-spatial)
+configs/user_*.json
+!configs/*.default.json
