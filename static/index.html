@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>digital-beacon</title>
+<style>
+  :root {
+    --bg: #0d0d11;
+    --panel: #16161d;
+    --border: #2a2a35;
+    --text: #e4e4ea;
+    --muted: #6c6c7a;
+    --accent: #5ed3a3;
+    --hot: #ff6a4d;
+    --dim: #2e3440;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'JetBrains Mono', 'SF Mono', Menlo, monospace;
+    font-size: 13px;
+    padding: 16px;
+  }
+  h1 {
+    font-size: 18px;
+    font-weight: 500;
+    margin: 0 0 4px 0;
+    letter-spacing: 0.5px;
+  }
+  .sub { color: var(--muted); font-size: 11px; margin-bottom: 16px; }
+  .header {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .pill {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 12px;
+  }
+  .pill b { color: var(--accent); font-weight: 600; }
+  button {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 8px 14px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12px;
+  }
+  button:hover { border-color: var(--accent); }
+  button.danger { color: var(--hot); border-color: #553; }
+  button.danger:hover { background: var(--hot); color: #fff; }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(8, 1fr);
+    gap: 6px;
+    margin-bottom: 16px;
+  }
+  .band {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    position: relative;
+    transition: border-color 80ms, background 80ms;
+    user-select: none;
+  }
+  .band.active {
+    border-color: var(--accent);
+    background: #1c2a25;
+  }
+  .band-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 6px;
+  }
+  .band-n {
+    font-size: 11px;
+    color: var(--muted);
+  }
+  .band-hz {
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .gain-bar {
+    height: 6px;
+    background: var(--dim);
+    border-radius: 3px;
+    position: relative;
+    cursor: pointer;
+    margin-bottom: 4px;
+  }
+  .gain-fill {
+    position: absolute;
+    left: 0; top: 0; bottom: 0;
+    background: var(--accent);
+    border-radius: 3px;
+    transition: width 60ms;
+  }
+  .pad-led {
+    height: 4px;
+    background: var(--dim);
+    border-radius: 2px;
+    margin-top: 4px;
+    position: relative;
+  }
+  .pad-led.on { background: var(--hot); }
+  .band-controls {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 6px;
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .toggle {
+    cursor: pointer;
+    padding: 2px 6px;
+    border-radius: 3px;
+    border: 1px solid var(--border);
+  }
+  .toggle.on { color: var(--accent); border-color: var(--accent); }
+  .toggle.off { color: var(--muted); }
+
+  .conn { color: var(--muted); font-size: 10px; }
+  .conn.ok { color: var(--accent); }
+  .conn.bad { color: var(--hot); }
+</style>
+</head>
+<body>
+  <h1>digital-beacon</h1>
+  <div class="sub">32-band binaural spatializer · 1:1 with f1·N · Shaper additive synth</div>
+
+  <div class="header">
+    <div class="pill">f1 = <b id="f1-val">40.0</b> Hz</div>
+    <div class="pill">active voices = <b id="active-count">0</b> / 32</div>
+    <div class="pill">WS <span id="conn" class="conn bad">disconnected</span></div>
+    <button class="danger" onclick="panic()">PANIC</button>
+  </div>
+
+  <div class="grid" id="grid"></div>
+
+  <div class="sub" style="margin-top: 12px;">
+    Click a bar to set gain (0..1). Click a band to toggle on/off. The red LED lights when the Launchpad pad is held.
+  </div>
+
+<script>
+const N_BANDS = 32;
+const grid = document.getElementById('grid');
+const f1El = document.getElementById('f1-val');
+const activeEl = document.getElementById('active-count');
+const connEl = document.getElementById('conn');
+
+// Build the 8x4 grid (32 cards)
+const cards = [];
+for (let n = 1; n <= N_BANDS; n++) {
+  const card = document.createElement('div');
+  card.className = 'band';
+  card.dataset.n = n;
+  card.innerHTML = `
+    <div class="band-head">
+      <span class="band-n">H${String(n).padStart(2,'0')}</span>
+      <span class="band-hz">${(40 * n).toFixed(0)} Hz</span>
+    </div>
+    <div class="gain-bar" data-role="gain">
+      <div class="gain-fill" data-role="gain-fill" style="width:50%"></div>
+    </div>
+    <div class="pad-led" data-role="pad-led"></div>
+    <div class="band-controls">
+      <span data-role="gain-label">0.50</span>
+      <span class="toggle on" data-role="toggle">on</span>
+    </div>
+  `;
+  // Click on gain bar → set gain by click x-position
+  const bar = card.querySelector('[data-role="gain"]');
+  bar.addEventListener('click', (ev) => {
+    const rect = bar.getBoundingClientRect();
+    const x = (ev.clientX - rect.left) / rect.width;
+    const gain = Math.max(0, Math.min(1, x));
+    setGain(n, gain);
+  });
+  // Click on card (outside gain bar) → toggle on/off
+  card.addEventListener('click', (ev) => {
+    if (ev.target.closest('[data-role="gain"]')) return;
+    toggleOn(n);
+  });
+  grid.appendChild(card);
+  cards.push(card);
+}
+
+let state = { f1: 40.0, voices: {} };
+
+function applyState(s) {
+  state = s;
+  f1El.textContent = (s.f1 || 40).toFixed(1);
+  let active = 0;
+  for (let n = 1; n <= N_BANDS; n++) {
+    const v = s.voices[String(n)] || {};
+    const card = cards[n-1];
+    const isActive = !!v.active;
+    if (isActive) active++;
+    card.classList.toggle('active', isActive);
+    // Pad LED: bright red when active
+    const led = card.querySelector('[data-role="pad-led"]');
+    led.classList.toggle('on', isActive);
+    // Gain
+    const gain = v.gain !== undefined ? v.gain : 0.5;
+    card.querySelector('[data-role="gain-fill"]').style.width = (gain * 100) + '%';
+    card.querySelector('[data-role="gain-label"]').textContent = gain.toFixed(2);
+  }
+  activeEl.textContent = active;
+}
+
+async function api(path, method='GET', body=null) {
+  const opts = { method, headers: {'Content-Type':'application/json'} };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  return await r.json();
+}
+
+function setGain(n, gain) {
+  api(`/api/harmonic/${n}/gain`, 'POST', {gain});
+}
+function toggleOn(n) {
+  const v = state.voices[String(n)] || {};
+  const on = !v.active;
+  api(`/api/harmonic/${n}/on`, 'POST', {on});
+}
+function panic() {
+  api('/api/panic', 'POST');
+}
+
+function connect() {
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws.onopen = () => { connEl.textContent='connected'; connEl.className='conn ok'; };
+  ws.onclose = () => {
+    connEl.textContent='disconnected'; connEl.className='conn bad';
+    setTimeout(connect, 1000);
+  };
+  ws.onerror = () => ws.close();
+  ws.onmessage = (ev) => {
+    try { applyState(JSON.parse(ev.data)); } catch(e) { console.error(e); }
+  };
+}
+connect();
+
+// Initial state pull
+api('/api/state').then(applyState).catch(e => console.error(e));
+</script>
+</body>
+</html>

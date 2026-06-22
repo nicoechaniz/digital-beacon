@@ -53,6 +53,9 @@ def main() -> None:
     parser.add_argument("--device", type=str, help="Audio device ID or substring")
     parser.add_argument("--no-midi", action="store_true", help="Disable MIDI control")
     parser.add_argument("--no-osc", action="store_true", help="Disable OSC receivers")
+    parser.add_argument("--no-api", action="store_true", help="Disable web dashboard (default: on)")
+    parser.add_argument("--api-host", type=str, default="127.0.0.1", help="Dashboard bind host")
+    parser.add_argument("--api-port", type=int, default=8080, help="Dashboard port")
     args = parser.parse_args()
 
     if args.list_midi:
@@ -95,6 +98,21 @@ def main() -> None:
         launchpad.start()
         minilab.start()
 
+    # Web dashboard (FastAPI in a thread)
+    api_thread = None
+    if not args.no_api:
+        from .api import create_app
+        import threading
+        import uvicorn
+        app = create_app(store)
+        config_uvicorn = uvicorn.Config(app, host=args.api_host, port=args.api_port,
+                                        log_level="warning", access_log=False)
+        server_uvicorn = uvicorn.Server(config_uvicorn)
+        api_thread = threading.Thread(target=server_uvicorn.run, name="shaper-api", daemon=True)
+        api_thread.start()
+        log.info("Web dashboard on http://%s:%d  (also try http://<lan-ip>:%d)",
+                 args.api_host, args.api_port, args.api_port)
+
     log.info("Shaper running. Press Ctrl-C to stop.")
     log.info("Listening:")
     if not args.no_osc:
@@ -103,6 +121,8 @@ def main() -> None:
         log.info("  OSC :%d  (direct: /digital/*)", config.SHAPER_OSC_PORT)
     if not args.no_midi:
         log.info("  MIDI Launchpad Mini + Minilab3 (auto-detect)")
+    if not args.no_api:
+        log.info("  Web  http://%s:%d", args.api_host, args.api_port)
 
     try:
         while True:
