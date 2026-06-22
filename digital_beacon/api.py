@@ -82,10 +82,15 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
     def _on_change():
         if _loop and _loop.is_running():
             data = store.to_dict()
+            n_active = sum(1 for v in data.get("voices", {}).values() if v.get("active"))
+            log.debug("WS push: %d active voices", n_active)
             try:
                 asyncio.run_coroutine_threadsafe(ws_mgr.broadcast(data), _loop)
             except Exception:
-                pass
+                log.exception("WS broadcast failed")
+        else:
+            log.debug("WS push skipped (_loop=%s running=%s)", 
+                       bool(_loop), _loop.is_running() if _loop else False)
 
     store._on_change = _on_change
 
