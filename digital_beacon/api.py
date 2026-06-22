@@ -184,9 +184,22 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
         name = body.get("name", "").strip()
         if not name:
             return {"ok": False, "error": "No name"}
-        path = PRESETS_DIR / f"{_safe_name(name)}.json"
-        if not path.exists():
-            return {"ok": False, "error": "Not found"}
+        # Try several path strategies in order:
+        # 1. Exact filename (preserves spaces and special chars)
+        # 2. safe_name (underscores, etc.)
+        # 3. As a glob match
+        candidates = [
+            PRESETS_DIR / f"{name}.json",
+            PRESETS_DIR / f"{_safe_name(name)}.json",
+        ]
+        path = next((p for p in candidates if p.exists()), None)
+        if path is None:
+            # Last resort: glob match
+            matches = list(PRESETS_DIR.glob(f"{_safe_name(name)}*.json"))
+            if matches:
+                path = matches[0]
+        if path is None:
+            return {"ok": False, "error": f"Not found: {name}"}
         with open(path) as f:
             state = json.load(f)
         # Apply to SC
@@ -199,9 +212,6 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
                     sc_osc.send_message(f"/beacon/{param}/{n}", [float(band[param])])
         if "master" in state:
             sc_osc.send_message("/beacon/master", [float(state["master"])])
-        if "mix" in state:
-            # In 32-band mode we don't have a global wet/dry mix; skip.
-            pass
         return {"ok": True, "name": name, "state": state}
 
     # ─── WebSocket ───────────────────────────────────────────────────────
