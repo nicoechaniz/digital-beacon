@@ -244,6 +244,23 @@ server.doWhenBooted({
     "[PANIC] All bands off.".postln;
   }, "/beacon/panic"));
 
+  // /beacon/record/start — start SC Server.record (captures the binaural
+  // engine output directly, no PipeWire monitoring needed).
+  oscdefs = oscdefs.add(OSCdef(\db_record_start, { |msg|
+    var path = msg[1].asString;
+    if(path == "", {
+      path = "/home/nicolas/Music/beacon/sc_record_%.wav".format(Date.localtime.stamp);
+    });
+    server.record(path: path, numChannels: 2);
+    "[RECORD START] %".format(path).postln;
+  }, "/beacon/record/start"));
+
+  // /beacon/record/stop — stop SC recording, free the recording node.
+  oscdefs = oscdefs.add(OSCdef(\db_record_stop, { |msg|
+    server.stopRecording;
+    "[RECORD STOP]".postln;
+  }, "/beacon/record/stop"));
+
   // /beacon/reset — restore defaults
   oscdefs = oscdefs.add(OSCdef(\db_reset, {
     synth.set(\vsrate, 1.0);

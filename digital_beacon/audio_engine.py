@@ -11,6 +11,7 @@ Adapted from NaturalHarmony/harmonic_shaper/audio_engine.py:
 """
 
 import logging
+import threading
 from typing import Optional
 
 import numpy as np
@@ -49,6 +50,8 @@ class AudioEngine:
         # env ramps 0→1 on attack, 1→0 on release. Voices with env≈0 and inactive are pruned.
         self._voice_state: dict[int, dict] = {}
         self._running = False
+        self._lock = threading.RLock()
+        self._record_sink: Optional[list] = None
 
     def start(self) -> None:
         if self._running:
@@ -77,6 +80,22 @@ class AudioEngine:
                 log.warning("Error closing stream: %s", exc)
             self._stream = None
         log.info("Shaper audio stopped.")
+
+    # ─── Recording tap ──────────────────────────────────────────────────
+    # The Recorder calls attach_recorder(list) on start and detach_recorder
+    # on stop. The audio callback appends the final mix (post-sidechain,
+    # pre-limiter) to the list — copy of the buffer so it survives the
+    # callback returning. Zero overhead when no recorder attached.
+
+    def attach_recorder(self, sink: list) -> None:
+        """Tap the final mix into `sink` (a Python list of ndarrays)."""
+        with self._lock:
+            self._record_sink = sink
+
+    def detach_recorder(self) -> None:
+        """Stop tapping. The sink list stays (Recorder owns it)."""
+        with self._lock:
+            self._record_sink = None
 
     @property
     def is_running(self) -> bool:
@@ -190,6 +209,14 @@ class AudioEngine:
 
         # Master gain + side-chain + soft limiter
         mix *= self._store.get_master_gain() * sc_factor
+
+        # ── Recording tap: hand a copy of the final mix to the recorder
+        #    BEFORE the soft limiter, so the Recorder can do its own
+        #    controlled limiting on the full mix (SC + Shaper).
+        sink = self._record_sink
+        if sink is not None:
+            sink.append(mix.copy())
+
         mix = np.tanh(mix * 1.05) * 0.95
         outdata[:] = mix
 

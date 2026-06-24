@@ -24,6 +24,7 @@ from .state import VoiceParameterStore
 from .audio_engine import AudioEngine
 from .osc_receiver import ShaperOSCReceiver
 from .midi_control import LaunchpadMiniControl
+from .recorder import Recorder
 from . import config
 
 logging.basicConfig(
@@ -101,9 +102,14 @@ def main() -> None:
     api_thread = None
     if not args.no_api:
         from .api import create_app
+        from pythonosc.udp_client import SimpleUDPClient
         import threading
         import uvicorn
-        app = create_app(store)
+        # The Recorder needs both the AudioEngine (for the Shaper tap)
+        # and an OSC client to tell sclang to start/stop its own Server.record.
+        sc_osc_for_rec = SimpleUDPClient(config.SCLANG_HOST, config.SCLANG_OSC_PORT)
+        recorder = Recorder(store, audio, sc_osc_for_rec)
+        app = create_app(store, recorder=recorder)
         config_uvicorn = uvicorn.Config(app, host=args.api_host, port=args.api_port,
                                         log_level="warning", access_log=False)
         server_uvicorn = uvicorn.Server(config_uvicorn)

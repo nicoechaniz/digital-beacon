@@ -42,12 +42,20 @@ from .recorder import Recorder
 
 log = logging.getLogger(__name__)
 
+
+class _StubRecorder:
+    """Used when Recorder is not injected (e.g. tests)."""
+    def status(self): return {"running": False, "disabled": True, "record_dir": "~/Music/beacon"}
+    def start(self, name=None): return {"ok": False, "error": "Recorder not initialized"}
+    def stop(self): return {"ok": False, "error": "Recorder not initialized"}
+    def toggle(self, name=None): return {"ok": False, "error": "Recorder not initialized"}
+
 STATIC_DIR = Path(__file__).parent.parent / "static"
 PRESETS_DIR = Path(__file__).parent.parent / "configs"
 PRESETS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def create_app(store: VoiceParameterStore) -> "FastAPI":
+def create_app(store: VoiceParameterStore, recorder=None) -> "FastAPI":
     if not HAS_FASTAPI:
         raise ImportError("fastapi and uvicorn are required. pip install fastapi uvicorn[standard]")
 
@@ -56,10 +64,11 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
     # OSC client to the SC beacon engine
     sc_osc = SimpleUDPClient(config.SCLANG_HOST, config.SCLANG_OSC_PORT)
 
-    # Recording manager (records the user's PipeWire monitor = the mix
-    # they actually hear). Single global instance — only one recording
-    # session at a time.
-    recorder = Recorder()
+    # Recording manager (dual-source: SC Server.record + Shaper audio tap,
+    # mixed in numpy at the end). If not provided, we create a stub that
+    # returns "disabled" so the endpoints don't 500.
+    if recorder is None:
+        recorder = _StubRecorder()
 
     # ─── WebSocket connection manager ─────────────────────────────────────
     class _WsManager:
