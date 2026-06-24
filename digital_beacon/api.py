@@ -38,6 +38,7 @@ from pythonosc.udp_client import SimpleUDPClient
 
 from .state import VoiceParameterStore
 from . import config
+from .recorder import Recorder
 
 log = logging.getLogger(__name__)
 
@@ -54,6 +55,11 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
 
     # OSC client to the SC beacon engine
     sc_osc = SimpleUDPClient(config.SCLANG_HOST, config.SCLANG_OSC_PORT)
+
+    # Recording manager (records the user's PipeWire monitor = the mix
+    # they actually hear). Single global instance — only one recording
+    # session at a time.
+    recorder = Recorder()
 
     # ─── WebSocket connection manager ─────────────────────────────────────
     class _WsManager:
@@ -239,10 +245,43 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
         if not name:
             return {"ok": False, "error": "No name"}
         state = body.get("state", {})
+        # Add a snapshot of the live Shaper state from the server so the
+        # preset captures the *actual* values (not just what the client
+        # thinks it sent). The client's payload is accepted as-is for the
+        # beacon side (the server doesn't track those), but we overlay the
+        # Shaper globals + per-voice params from the store.
+        live = store.to_dict()
+        shaper_section = {
+            "master_gain": live.get("master_gain"),
+            "global_attack_s": live.get("global_attack_s"),
+            "global_release_s": live.get("global_release_s"),
+            "sidechain_amount": live.get("sidechain_amount"),
+            "lfo_rate_divisor": live.get("lfo_rate_divisor"),
+            "lfo_waveform": live.get("lfo_waveform"),
+            "lfo_amount": live.get("lfo_amount"),
+            "voices": live.get("voices", {}),
+        }
+        # Beacon section: client-tracked (server is dumb proxy to sclang)
+        beacon_section = {
+            "f1": state.get("f1"),
+            "vsrate": state.get("vsrate"),
+            "master": state.get("master"),
+            "bands": state.get("bands", []),
+        }
+        full = {
+            "version": 2,
+            "saved_at": int(time.time()),
+            "beacon": beacon_section,
+            "shaper": shaper_section,
+        }
         path = PRESETS_DIR / f"{name}.json"
         with open(path, "w") as f:
-            json.dump(state, f, indent=2)
-        return {"ok": True, "name": name, "path": str(path)}
+            json.dump(full, f, indent=2)
+        return {
+            "ok": True, "name": name, "path": str(path),
+            "beacon_bands": len(beacon_section["bands"]),
+            "shaper_voices": len(shaper_section["voices"]),
+        }
 
     @app.post("/api/presets/load")
     async def load_preset(body: dict):
@@ -267,17 +306,96 @@ def create_app(store: VoiceParameterStore) -> "FastAPI":
             return {"ok": False, "error": f"Not found: {name}"}
         with open(path) as f:
             state = json.load(f)
-        # Apply to SC
-        for band in state.get("bands", []):
+        # ── Beacon side (always present, legacy or new format) ────────
+        bands = state.get("bands", [])
+        if not bands and isinstance(state.get("beacon"), dict):
+            bands = state["beacon"].get("bands", [])
+        for band in bands:
             n = band.get("n", 0)
             if not (1 <= n <= 32):
                 continue
             for param in ("gain", "az", "dist", "q", "on"):
                 if param in band:
                     sc_osc.send_message(f"/beacon/{param}/{n}", [float(band[param])])
-        if "master" in state:
-            sc_osc.send_message("/beacon/master", [float(state["master"])])
+        # master: try top-level "master" (legacy) then beacon.master (new)
+        master_val = state.get("master")
+        if master_val is None and isinstance(state.get("beacon"), dict):
+            master_val = state["beacon"].get("master")
+        if master_val is not None:
+            sc_osc.send_message("/beacon/master", [float(master_val)])
+        # f1 + vsrate (new format only)
+        if isinstance(state.get("beacon"), dict):
+            if state["beacon"].get("f1") is not None:
+                f1 = float(state["beacon"]["f1"])
+                sc_osc.send_message("/beacon/f1", [f1])
+                store.update_f1(f1)
+            if state["beacon"].get("vsrate") is not None:
+                rate = float(state["beacon"]["vsrate"])
+                sc_osc.send_message("/beacon/vsource", [rate])
+                store.set_vsrate(rate)
+        # ── Shaper side (new format only — old presets skip this) ─────
+        sh = state.get("shaper")
+        if isinstance(sh, dict):
+            for gname in ("global_attack_s", "global_release_s", "sidechain_amount",
+                          "lfo_amount", "master_gain"):
+                if gname in sh and sh[gname] is not None:
+                    fn = {
+                        "global_attack_s": store.set_global_attack,
+                        "global_release_s": store.set_global_release,
+                        "sidechain_amount": store.set_sidechain_amount,
+                        "lfo_amount": store.set_lfo_amount,
+                        "master_gain": store.set_master_gain,
+                    }[gname]
+                    fn(float(sh[gname]))
+            if sh.get("lfo_waveform"):
+                store.set_lfo_waveform(sh["lfo_waveform"])
+            if sh.get("lfo_rate_divisor") is not None:
+                store.set_lfo_rate_divisor(int(sh["lfo_rate_divisor"]))
+            for n_str, vp in (sh.get("voices") or {}).items():
+                try:
+                    n = int(n_str)
+                except (ValueError, TypeError):
+                    continue
+                if not (1 <= n <= config.N_BANDS):
+                    continue
+                if vp.get("gain") is not None:
+                    store.set_gain(n, float(vp["gain"]))
+                if vp.get("pan") is not None:
+                    store.set_pan(n, float(vp["pan"]))
+                if vp.get("phase_deg") is not None:
+                    store.set_phase(n, float(vp["phase_deg"]))
+                if vp.get("attack_s") is not None:
+                    store.set_attack(n, float(vp["attack_s"]))
+                if vp.get("release_s") is not None:
+                    store.set_release(n, float(vp["release_s"]))
+                if vp.get("shape") is not None:
+                    store.set_shape(n, float(vp["shape"]))
+                if vp.get("lfo_gain") is not None:
+                    store.set_lfo_gain(n, float(vp["lfo_gain"]))
+                if vp.get("lfo_pan") is not None:
+                    store.set_lfo_pan(n, float(vp["lfo_pan"]))
+                if vp.get("lfo_phase") is not None:
+                    store.set_lfo_phase(n, float(vp["lfo_phase"]))
         return {"ok": True, "name": name, "state": state}
+
+    # ─── REST: Recording (pw-record on PipeWire monitor) ────────────────
+    @app.get("/api/record/status")
+    async def record_status():
+        return recorder.status()
+
+    @app.post("/api/record/start")
+    async def record_start(body: Optional[dict] = None):
+        name = (body or {}).get("name") or None
+        return recorder.start(name)
+
+    @app.post("/api/record/stop")
+    async def record_stop():
+        return recorder.stop()
+
+    @app.post("/api/record/toggle")
+    async def record_toggle(body: Optional[dict] = None):
+        name = (body or {}).get("name") or None
+        return recorder.toggle(name)
 
     # ─── WebSocket ───────────────────────────────────────────────────────
     @app.websocket("/ws")

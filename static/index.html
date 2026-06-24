@@ -103,6 +103,11 @@
         <div class="pill">WS <span id="conn" class="conn-bad">off</span></div>
         <button class="action" onclick="panic()">PANIC</button>
         <button class="action" style="border-color:#3498db; color:#3498db;" onclick="resetBeacon()">RESET</button>
+        <input type="text" id="rec-name" placeholder="session name"
+               style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 8px;border-radius:3px;font-size:0.65rem;width:140px;">
+        <button id="rec-btn" class="action" style="border-color:#e74c3c; color:#e74c3c;"
+                onclick="toggleRecord()">RECORD</button>
+        <div class="pill" id="rec-status">ready</div>
     </div>
 
     <!-- Global controls: Mix + Envelope + Side-chain + LFO -->
@@ -327,11 +332,90 @@ function toggleOn(n,btn){const v=scState.on[n]?0:1;scState.on[n]=v;applyScState(
 function panic(){api('/api/panic','POST');}
 function resetBeacon(){api('/api/reset','POST');for(let n=1;n<=N;n++){scState.on[n]=1;scState.gain[n]=0.8;scState.az[n]=0;scState.dist[n]=2;scState.q[n]=0.5;}applyScState();}
 
-// Presets
+// Recording — RECORD/STOP toggle. Captures the live mixdown via
+// PipeWire's monitor of the active sink (SC binaural + Shaper sines
+// already coexist in the user's output, so the monitor sees both).
+let recTimer=null;
+function setRecUi(state){
+  const btn=document.getElementById('rec-btn');
+  const status=document.getElementById('rec-status');
+  if(!btn||!status) return;
+  if(state.running){
+    btn.textContent='STOP';
+    btn.style.background='#e74c3c';
+    btn.style.color='#fff';
+    btn.style.borderColor='#e74c3c';
+    status.textContent='rec '+(state.elapsed_s||0).toFixed(0)+'s';
+    status.style.color='#e74c3c';
+  }else{
+    btn.textContent='RECORD';
+    btn.style.background='transparent';
+    btn.style.color='#e74c3c';
+    btn.style.borderColor='#e74c3c';
+    status.textContent=state.last_error||'ready';
+    status.style.color=state.last_error?'#e74c3c':'#888';
+  }
+}
+function fmtElapsed(s){const m=Math.floor(s/60);const sec=Math.floor(s%60);return m+':'+String(sec).padStart(2,'0');}
+async function toggleRecord(){
+  const name=document.getElementById('rec-name').value.trim();
+  const body=name?{name}:{};
+  const r=await api('/api/record/toggle','POST',body);
+  if(r&&r.ok){
+    if(r.already_stopped){/* idempotent */ return pollRecStatus();}
+    if(r.path&&!r.target){
+      // stopped: show where it landed
+      const status=document.getElementById('rec-status');
+      if(status){status.textContent='saved '+(r.path.split('/').pop())+' ('+(r.size_bytes/1024).toFixed(0)+'KB)';status.style.color='#2ecc71';}
+    }
+    pollRecStatus();
+  }else{
+    const status=document.getElementById('rec-status');
+    if(status){status.textContent='error: '+(r&&r.error);status.style.color='#e74c3c';}
+  }
+}
+async function pollRecStatus(){
+  const r=await api('/api/record/status');
+  if(!r) return;
+  setRecUi(r);
+  if(r.running){
+    if(!recTimer) recTimer=setInterval(async ()=>{
+      const s=await api('/api/record/status');
+      if(!s) return;
+      if(!s.running){
+        clearInterval(recTimer); recTimer=null;
+        setRecUi(s);
+        const status=document.getElementById('rec-status');
+        if(status&&s.path){status.textContent='saved '+s.path.split('/').pop();status.style.color='#2ecc71';}
+      }else{
+        const status=document.getElementById('rec-status');
+        if(status){status.textContent='rec '+fmtElapsed(s.elapsed_s);status.style.color='#e74c3c';}
+      }
+    },500);
+  }else if(recTimer){
+    clearInterval(recTimer); recTimer=null;
+  }
+}
+
+// Presets — Save/Load capture BOTH the beacon (spatializer) and the Shaper
+// (additive synth) state. Beacon side lives in this client (scState +
+// sliders); Shaper side is server-authoritative (store.to_dict()) and
+// arrives via WebSocket. gatherFullState() merges both halves into one
+// payload for /api/presets/save. The server overlays the live Shaper
+// snapshot so even unsynced UI is captured correctly.
 async function gatherScState(){
   const bands=[];
   for(let n=1;n<=N;n++) bands.push({n,gain:scState.gain[n],az:scState.az[n],dist:scState.dist[n],q:scState.q[n],on:scState.on[n]});
   return {bands,master:parseFloat(document.getElementById('master').value)};
+}
+async function gatherFullState(){
+  const sc = await gatherScState();
+  return {
+    f1: parseFloat(document.getElementById('f1-slider').value),
+    vsrate: parseFloat(document.getElementById('vsrate-slider').value),
+    master: sc.master,
+    bands: sc.bands,
+  };
 }
 async function applyScStateFromPreset(state){
   for(const b of(state.bands||[])){
@@ -349,9 +433,15 @@ function setPresetStatus(msg,color){const e=document.getElementById('preset-stat
 async function savePreset(){
   const name=document.getElementById('save-name').value.trim();
   if(!name){setPresetStatus('Enter name','#e67e22');return;}
-  const state=await gatherScState();
+  // Client payload = beacon side + the beacon-relevant globals.
+  // The server overlays the live Shaper store so the saved preset
+  // captures the actual current values, not just what the UI shows.
+  const state=await gatherFullState();
   const r=await api('/api/presets/save','POST',{name,state});
-  if(r&&r.ok){setPresetStatus('Saved: '+r.name,'#2ecc71');await loadPresetList();}
+  if(r&&r.ok){
+    setPresetStatus('Saved: '+r.name+' ('+r.beacon_bands+' bands, '+r.shaper_voices+' voices)','#2ecc71');
+    await loadPresetList();
+  }
   else{setPresetStatus('Error: '+(r&&r.error),'#e74c3c');}
 }
 async function loadPreset(){
@@ -359,7 +449,26 @@ async function loadPreset(){
   if(!name){setPresetStatus('Select preset','#e67e22');return;}
   setPresetStatus('Loading...','#3498db');
   const r=await api('/api/presets/load','POST',{name});
-  if(r&&r.ok){await applyScStateFromPreset(r.state);setPresetStatus('Loaded: '+name,'#2ecc71');}
+  if(r&&r.ok){
+    // Apply beacon side to client UI + SC via OSC
+    const bc = (r.state.beacon) ? {
+      bands: r.state.beacon.bands || [],
+      master: r.state.beacon.master,
+    } : {bands: r.state.bands || [], master: r.state.master};
+    await applyScStateFromPreset(bc);
+    // Apply beacon globals (f1, vsrate) on the client too so sliders sync
+    if (bc.f1!==undefined && bc.f1!==null) {
+      const el=document.getElementById('f1-slider'); if(el&&document.activeElement!==el) el.value=bc.f1;
+      showVal('vf1', bc.f1+'Hz');
+    }
+    if (bc.vsrate!==undefined && bc.vsrate!==null) {
+      const el=document.getElementById('vsrate-slider'); if(el&&document.activeElement!==el) el.value=bc.vsrate;
+      showVal('vvsrate', parseFloat(bc.vsrate).toFixed(2));
+    }
+    setPresetStatus('Loaded: '+name,'#2ecc71');
+    // Shaper side was applied server-side via store.*; the WebSocket will
+    // push the new state and our applyShaperState() will sync the sliders.
+  }
   else{setPresetStatus('Error: '+(r&&r.error),'#e74c3c');}
 }
 async function loadPresetList(){
@@ -383,6 +492,7 @@ connect();
 applyScState();
 loadPresetList();
 api('/api/state').then(s=>{if(s)applyShaperState(s);}).catch(e=>console.error(e));
+pollRecStatus();
 </script>
 </body>
 </html>
