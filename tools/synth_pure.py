@@ -48,6 +48,9 @@ import soundfile as sf
 
 log = logging.getLogger("synth_pure")
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from tools.voice_cache import VoiceCache
+
 N_HARMONICS = 32
 SAMPLE_RATE = 44100
 
@@ -494,6 +497,47 @@ def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
     )
 
 
+_voice_cache: VoiceCache | None = None
+
+def get_cache() -> VoiceCache:
+    """Return the process-wide VoiceCache singleton."""
+    global _voice_cache
+    if _voice_cache is None:
+        _voice_cache = VoiceCache()
+    return _voice_cache
+
+
+def synthesize_cached(y, sr, wav_path: Path = None, **kwargs) -> np.ndarray:
+    """Synthesize with VoiceCache backing for prepare_analysis.
+
+    If wav_path is given, attempts to reuse a cached prepare_analysis()
+    result. Falls back to synthesize() when wav_path is None (no caching)
+    or when the cache misses.
+
+    All **kwargs are forwarded to synthesize_prepared(). The cache only
+    covers prepare_analysis() — re-rendering with different synth params
+    (thresh_db, gain_curve, etc.) reuses the cached analysis and just
+    re-runs the cheap synthesize_prepared().
+    """
+    if wav_path is None:
+        return synthesize(y, sr, **kwargs)
+
+    cache = get_cache()
+    prepared = cache.get(wav_path)
+    if prepared is None:
+        prepared = prepare_analysis(y, sr)
+        cache.store(wav_path, prepared)
+
+    # Extract f0_min/f0_max from kwargs if they were passed —
+    # synthesize() extracts these, but synthesize_cached bypasses synthesize()
+    # when cache hits. prepare_analysis uses f0_min/f0_max; if the cached dict
+    # exists we've already used whatever values were passed on the first call.
+    # Just pass the remaining kwargs to synthesize_prepared.
+    synth_kwargs = {k: v for k, v in kwargs.items()
+                    if k not in ('f0_min', 'f0_max')}
+    return synthesize_prepared(prepared, **synth_kwargs)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("wav", type=Path)
@@ -527,11 +571,13 @@ def main(argv=None):
     log.info("Input: %d samples @ %d Hz (%.2f s)",
              len(y), sr, len(y) / sr)
 
-    out = synthesize(y, sr, args.thresh_db, args.f0_min, args.f0_max,
-                     max_voices=args.max_voices,
-                     noise_floor_db=args.noise_floor_db,
-                     gain_curve=args.gain_curve,
-                     spectral_tilt_db=args.spectral_tilt_db)
+    out = synthesize_cached(y, sr, wav_path=args.wav,
+                           thresh_db=args.thresh_db,
+                           f0_min=args.f0_min, f0_max=args.f0_max,
+                           max_voices=args.max_voices,
+                           noise_floor_db=args.noise_floor_db,
+                           gain_curve=args.gain_curve,
+                           spectral_tilt_db=args.spectral_tilt_db)
 
     # Soft-clip + normalize to peak 0.95
     peak = float(np.abs(out).max())
