@@ -127,8 +127,15 @@ class AudioEngine:
         for n in active_ns & tracked_ns:
             self._voice_state[n]["params"] = voices[n]
 
-        # Per-voice normalization
+        # Per-voice normalization. Count both currently-active voices AND
+        # voices still in release tail (env > 0), because the latter still
+        # contribute to the mix until env ramps down to zero. Without this,
+        # the norm is too low during voice_on/off transitions and the mix
+        # clips (was: n_active = len(active_ns), which undercounted).
         n_active = len(active_ns)
+        for n, state in self._voice_state.items():
+            if state["env"] > 0.001 and n not in active_ns:
+                n_active += 1
         norm = 1.0 / (n_active ** 0.5) if n_active > 0 else 1.0
 
         # ── LFO: advance and get current value ────────────────────────
