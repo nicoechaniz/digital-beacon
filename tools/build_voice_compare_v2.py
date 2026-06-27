@@ -20,8 +20,8 @@ OUT_DIR = Path("/home/nicolas/Projects/digital-beacon/tools/viz")
 OUT_DIR.mkdir(parents=True, exist_ok=True)
 HTML_PATH = OUT_DIR / "index.html"
 
-ORIG_PATH = Path("/home/nicolas/Music/voice-analysis/nico_voz_v2_mono.wav")
-SYNTH_PATH = Path("/home/nicolas/Music/voice-analysis/nico_voz_v2_synth.wav")
+ORIG_PATH = Path("/home/nicolas/Music/voice-analysis/nico_voz_02_mono.wav")
+SYNTH_PATH = Path("/home/nicolas/Music/voice-analysis/nico_voz_02_synth.wav")
 
 # ─── Load audio ────────────────────────────────────────────────────────────
 y_orig, sr_o = sf.read(str(ORIG_PATH))
