@@ -42,9 +42,19 @@ import sys
 import wave
 from pathlib import Path
 
-import librosa
+try:
+    import librosa
+except Exception as _librosa_exc:  # robustness for missing / wrong version
+    librosa = None  # type: ignore[assignment]
+    _LIBROSA_IMPORT_ERROR = _librosa_exc
+
+try:
+    import soundfile as sf
+except Exception as _sf_exc:
+    sf = None  # type: ignore[assignment]
+    _SF_IMPORT_ERROR = _sf_exc
+
 import numpy as np
-import soundfile as sf
 
 log = logging.getLogger("synth_pure")
 
@@ -62,6 +72,8 @@ def analyze(y, sr, f0_min, f0_max):
     For new code prefer prepare_analysis() which returns the full dict the
     synthesizer consumes (including STFT + frequency grid).
     """
+    if librosa is None:
+        raise ImportError("librosa is required for analyze")
     hop = int(0.0464 * sr)
     n_fft = 4096
     f0, voiced, _ = librosa.pyin(
@@ -115,20 +127,82 @@ def prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0) -> dict:
     The dict is self-contained — synthesize_prepared() takes only this dict
     plus optional rendering parameters. No further librosa calls needed.
     """
+    if librosa is None:
+        raise ImportError("librosa is required for prepare_analysis; " + str(getattr(sys.modules[__name__], "_LIBROSA_IMPORT_ERROR", "")))
+
+    # Robustness: reduce stereo/ndim>1 to mono by loudest channel (mirrors server/build pick logic).
+    y = np.asarray(y)
+    if y.ndim > 1:
+        mags = np.abs(y).max(axis=0)
+        best = int(np.argmax(mags))
+        y = y[:, best]
+    y = y.astype(np.float32, copy=False)
+
+    # Input stats (diagnostic)
+    y_peak = float(np.abs(y).max()) if y.size else 0.0
+    y_rms = float(np.sqrt(np.mean(y * y))) if y.size else 0.0
+    log.info("prepare_analysis input: shape=%s peak=%.6g RMS=%.6g sr=%d", y.shape, y_peak, y_rms, int(sr))
+
     hop = int(0.0464 * sr)
     n_fft = 4096
 
+    # Use normalized copy for pyin + stft so that F0/voiced/harmonic gains are level-invariant
+    # (prevents all-zero when caller passes low-amplitude or un-normalized buffers).
+    y_anal = y / (y_peak + 1e-12) if y_peak > 1e-12 else y.copy()
+
     # Raw librosa analysis
     f0, voiced, _ = librosa.pyin(
-        y, fmin=f0_min, fmax=f0_max, sr=sr,
+        y_anal, fmin=f0_min, fmax=f0_max, sr=sr,
         hop_length=hop, frame_length=n_fft, fill_na=0.0,
     )
-    stft_raw = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
+
+    # Diagnostic dump of librosa feature outputs (at INFO as required)
+    f0_nz = int((f0 > 0).sum())
+    voiced_cnt = int(voiced.sum())
+    v_ratio = float(voiced.mean()) if len(voiced) else 0.0
+    log.info("prepare_analysis pyin: f0(min=%.1f max=%.1f mean=%.1f) nonzero=%d/%d voiced=%d/%d (ratio=%.3f)",
+             float(f0.min()), float(f0.max()), float(f0.mean()), f0_nz, len(f0), voiced_cnt, len(voiced), v_ratio)
+
+    stft_raw = np.abs(librosa.stft(y_anal, n_fft=n_fft, hop_length=hop))
     freqs_stft = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
     times = librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop)
 
     # Per-harmonic gain table (in dB), -120 for unvoiced frames
     T = len(f0)
+
+    # Fallback when pyin VAD reports zero voiced (common on low-SNR, edge pitch, or un-normalized inputs).
+    # Use yin (always estimates f0) + simple RMS energy VAD so synthesis can still proceed.
+    if voiced_cnt == 0 and T > 0:
+        log.info("prepare_analysis: pyin voiced=0; falling back to yin + energy VAD")
+        try:
+            f0 = librosa.yin(
+                y_anal, fmin=f0_min, fmax=f0_max, sr=sr,
+                hop_length=hop, frame_length=n_fft
+            )
+        except Exception as _yin_exc:
+            log.info("yin fallback failed (%s); using constant 150Hz", _yin_exc)
+            f0 = np.full(T, 150.0, dtype=np.float64)
+        try:
+            rms = librosa.feature.rms(y=y_anal, frame_length=n_fft, hop_length=hop, center=True)[0]
+            if len(rms) > T:
+                rms = rms[:T]
+            elif len(rms) < T:
+                rms = np.pad(rms, (0, T - len(rms)), mode="edge")
+            rms_db = 20.0 * np.log10(rms + 1e-12)
+            voiced = (rms_db > -50.0) & (f0 > 0)
+            if not voiced.any():
+                voiced = rms_db > -70.0
+            if not (f0 > 0).any():
+                f0 = np.full(T, 150.0, dtype=np.float64)
+                voiced = np.ones(T, dtype=bool)
+        except Exception as _vad_exc:
+            log.info("energy VAD fallback error (%s); forcing all frames voiced @150Hz", _vad_exc)
+            voiced = np.ones(T, dtype=bool)
+            f0 = np.full(T, 150.0, dtype=np.float64)
+        voiced_cnt = int(voiced.sum())
+        v_ratio = float(voiced.mean())
+        log.info("prepare_analysis fallback: now voiced=%d/%d f0_mean=%.1f", voiced_cnt, T, float(f0[voiced].mean()) if voiced_cnt else 0.0)
+
     gains_db = np.full((T, N_HARMONICS), -120.0, dtype=np.float32)
     for t in range(T):
         ft = f0[t]
@@ -142,6 +216,13 @@ def prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0) -> dict:
                 continue
             mag = float(np.interp(tgt, freqs_stft, stft_raw[:, t]))
             gains_db[t, n] = 20.0 * np.log10(mag + 1e-12)
+
+    # Additional harmonic analysis result logging (diagnostic)
+    harm_frames = int(np.any(gains_db > -120, axis=1).sum())
+    h1_vals = gains_db[:, 0]
+    h1_mean = float(h1_vals[h1_vals > -120].mean()) if (h1_vals > -120).any() else -120.0
+    log.info("prepare_analysis harmonic: frames_with_gains=%d H1_dB(mean_on_active~%.1f) max=%.1f",
+             harm_frames, h1_mean, float(gains_db.max()))
 
     log.info("Analysis: %d frames, %.2f s, %.1f%% voiced",
              T, times[-1] if len(times) else 0, 100.0 * voiced.mean())
@@ -157,15 +238,23 @@ def prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0) -> dict:
     # jitter without smearing real intonation. Without this, every ~46 ms
     # analysis frame can jump 30+ Hz and the harmonic series gets re-tuned
     # rapidly, producing audible beating/whistling artifacts.
-    from scipy.signal import medfilt
-    from scipy.ndimage import gaussian_filter1d
+    try:
+        from scipy.signal import medfilt
+        from scipy.ndimage import gaussian_filter1d
+        _HAVE_SCIPY = True
+    except Exception:
+        _HAVE_SCIPY = False
+        log.info("scipy not available; skipping median/gaussian smoothing (bridging still applied)")
     f0_smooth = f0.copy()
     voiced_idx = np.where(voiced)[0]
-    if len(voiced_idx) >= 5:
+    if len(voiced_idx) >= 5 and _HAVE_SCIPY:
         f0_voiced = f0[voiced]
         f0_med = medfilt(f0_voiced, kernel_size=5)
         f0_voiced_smooth = gaussian_filter1d(f0_med, sigma=1.5)
         f0_smooth[voiced_idx] = f0_voiced_smooth
+    elif len(voiced_idx) >= 5:
+        # no scipy: light manual median-ish skip, still copy
+        f0_smooth[voiced_idx] = f0[voiced]
 
     # Hold last F0 forward through unvoiced regions (instead of 0) so the
     # synth continues smoothly through gaps.
@@ -564,6 +653,8 @@ def main(argv=None):
         datefmt="%H:%M:%S",
     )
 
+    if sf is None:
+        raise ImportError("soundfile is required for CLI: " + str(getattr(sys.modules[__name__], "_SF_IMPORT_ERROR", "")))
     y, sr = sf.read(str(args.wav), always_2d=False)
     if y.ndim > 1:
         y = y[:, 0]

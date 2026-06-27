@@ -35,6 +35,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from tools.synth_pure import synthesize as synth_render
 from tools.synth_pure import analyze as synth_analyze
 
+# Re-export under the canonical name so that tests and consumers can do
+# `from tools.build_voice_compare_v3 import synthesize` (aliased from synth_pure).
+synthesize = synth_render
+
 log = logging.getLogger("build_voice_compare_v3")
 
 VOICE_DIR = Path.home() / "Music" / "voice-analysis"

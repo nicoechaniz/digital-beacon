@@ -10,7 +10,12 @@ Endpoints
 ---------
   GET  /                  → inline HTML/JS UI (placeholder; filled by frontend task)
   GET  /samples           → JSON list of discovered voice samples (id, label, stats)
-  GET  /orig/<id>         → original WAV audio for the given sample
+                            (served from in-memory cache; populated at startup)
+  POST /samples/refresh   → force re-scan of voice_dir and refresh the cache;
+                            returns {"ok": true, "count": N, "voice_dir": "..."}
+  GET  /orig/<id>         → original WAV audio, streamed from the sample cache
+                            (looks up path from the in-memory discovery list;
+                            returns 404 {\"error\": \"sample not found\"} if unknown)
   POST /render            → STUB: returns 501 with JSON {error, detail}
                             until the render handler is wired (depends on the
                             synth_pure refactor + VoiceCache)
@@ -28,6 +33,7 @@ Usage
 
     # curl checks
     curl -s http://127.0.0.1:8770/samples | python3 -m json.tool
+    curl -s -X POST http://127.0.0.1:8770/samples/refresh | python3 -m json.tool
     curl -s -X POST http://127.0.0.1:8770/render \
         -H 'Content-Type: application/json' \
         -d '{"sample_id":"nico_voz_sample_02"}' -i
@@ -48,6 +54,7 @@ import sys
 import threading
 import time
 import wave
+import io
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -70,6 +77,9 @@ SKIP_SUFFIXES = ("_synth", "_orig", "_mono", "_clean", "_filt", "_0-9s", "_side_
 SAFE_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
 log = logging.getLogger("voice_shaper_server")
+
+_SAMPLES_CACHE: Optional[list[dict[str, Any]]] = None
+_voice_cache = None
 
 
 def discover_samples(voice_dir: Path) -> list[dict[str, Any]]:
@@ -130,6 +140,42 @@ def _probe_duration_seconds(wav_path: Path) -> Optional[float]:
         return None
 
 
+def pick_loud_channel(y):
+    """Reduce a stereo buffer to mono by selecting the channel with audio.
+
+    R24 captures (and many other sources) record stereo with voice on Ch2
+    and Ch1 holding monitor bleed at ~-90 dB. Hardcoding ``y[:, 0]`` would
+    feed librosa a near-silent buffer and the synthesizer would produce
+    nothing. Instead: if one channel is at least 5x louder than the other,
+    use it; otherwise average.
+
+    Returns y unchanged when it is already mono. Mirrors
+    build_voice_compare_v3.pick_mono_channel.
+    """
+    if y.ndim == 1:
+        return y
+    mag_l = float(abs(y[:, 0]).max() if hasattr(y[:, 0], 'max') else abs(y[:, 0]))
+    mag_r = float(abs(y[:, 1]).max() if hasattr(y[:, 1], 'max') else abs(y[:, 1]))
+    if mag_r > mag_l * 5:
+        return y[:, 1]
+    if mag_l > mag_r * 5:
+        return y[:, 0]
+    return y.mean(axis=1)
+
+
+def refresh_samples_cache(voice_dir: Path) -> int:
+    """Call discover_samples and store the result in the module-level cache.
+
+    Returns the count of samples (for logging and response payloads).
+    discover_samples() signature is unchanged; this is the only writer.
+    """
+    global _SAMPLES_CACHE
+    _SAMPLES_CACHE = discover_samples(voice_dir)
+    count = len(_SAMPLES_CACHE)
+    log.info("samples cache refreshed: %d samples from %s", count, voice_dir)
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Inline UI placeholder (replaced by the frontend task)
 # ---------------------------------------------------------------------------
@@ -138,43 +184,562 @@ PLACEHOLDER_HTML = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Voice → Shaper</title>
 <style>
   :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
   body {
-    margin: 0; min-height: 100vh;
+    margin: 0; padding: 16px 20px;
     background: #0e1116; color: #c9d1d9;
     font: 14px/1.45 -apple-system, "Segoe UI", system-ui, sans-serif;
-    display: flex; align-items: center; justify-content: center;
+    overflow-x: auto;
   }
+  .container { max-width: 980px; margin: 0 auto; }
+  h1 { margin: 0 0 12px; font-size: 20px; color: #58a6ff; font-weight: 600; }
+  h2 { margin: 0 0 8px; font-size: 13px; color: #8b949e; text-transform: uppercase; letter-spacing: .04em; font-weight: 600; }
   .card {
     background: #161b22; border: 1px solid #30363d; border-radius: 8px;
-    padding: 24px 28px; max-width: 520px;
+    padding: 14px 16px; margin-bottom: 12px;
   }
-  h1 { margin: 0 0 8px; font-size: 18px; color: #58a6ff; }
-  p  { margin: 6px 0; color: #8b949e; }
-  code { background: #0d1117; padding: 1px 6px; border-radius: 4px; color: #c9d1d9; }
-  ul { margin: 12px 0 0; padding-left: 18px; }
-  li { margin: 4px 0; }
-  .pill {
-    display: inline-block; font-size: 11px; padding: 2px 8px; border-radius: 999px;
-    background: #1f6feb33; color: #58a6ff; margin-left: 8px;
+  .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  label { font-size: 11px; color: #8b949e; display: block; margin-bottom: 3px; }
+  select, input[type=number] {
+    background: #0d1117; color: #c9d1d9; border: 1px solid #30363d;
+    border-radius: 4px; padding: 4px 6px; font: inherit;
   }
+  input[type=range] { accent-color: #58a6ff; }
+  .globals-row { display: flex; gap: 12px; flex-wrap: wrap; }
+  .globals-row .ctrl { min-width: 110px; }
+  .hstrip { display: flex; gap: 12px; }
+  .hcol {
+    display: flex; flex-direction: column; align-items: center;
+    background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
+    padding: 6px 4px; min-width: 46px;
+  }
+  .hcol .hname { font-size: 11px; color: #8b949e; margin-bottom: 3px; }
+  .hcol .hval { font-family: monospace; font-size: 12px; color: #58a6ff; margin: 2px 0 3px; }
+  .hcol select { width: 100%; font-size: 10px; padding: 1px 2px; }
+  .vslider {
+    appearance: slider-vertical;
+    writing-mode: vertical-lr;
+    direction: rtl;
+    height: 140px;
+    width: 24px;
+    accent-color: #58a6ff;
+    background: #21262d;
+  }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 4px; }
+  button {
+    background: #21262d; border: 1px solid #30363d; color: #c9d1d9;
+    padding: 8px 14px; border-radius: 4px; font: inherit; cursor: pointer;
+  }
+  button.play {
+    background: #3fb950; color: #0e1116; border: none; font-weight: 600;
+  }
+  button.primary {
+    background: #58a6ff; color: #0e1116; border: none; font-weight: 600;
+  }
+  button:disabled { opacity: 0.6; cursor: default; }
+  .status { margin-top: 8px; font-size: 12px; font-family: monospace; min-height: 1.4em; }
+  .status.err { color: #f85149; }
+  .status.ok { color: #3fb950; }
+  .sub { color: #8b949e; font-size: 12px; }
+  .ctrl { margin-bottom: 6px; }
 </style>
 </head>
 <body>
+<div class="container">
+  <h1>Voice &rarr; Shaper &mdash; Interactive Mixer</h1>
+
   <div class="card">
-    <h1>Voice → Shaper <span class="pill">UI placeholder</span></h1>
-    <p>The server skeleton is up. The interactive harmonic mixer will be
-       wired into this page by the frontend task.</p>
-    <p>Try the data endpoints while the UI is being built:</p>
-    <ul>
-      <li><code>GET /samples</code> — list of available voice recordings</li>
-      <li><code>GET /orig/&lt;id&gt;</code> — original WAV audio</li>
-      <li><code>POST /render</code> — synthesised WAV (currently 501 stub)</li>
-      <li><code>GET /viz/&lt;path&gt;</code> — existing dashboard PNGs</li>
-    </ul>
+    <div class="row">
+      <div style="flex:1; min-width:220px;">
+        <label>Sample</label>
+        <select id="sample" style="width:100%;"></select>
+      </div>
+      <div><span id="meta" class="sub"></span></div>
+    </div>
   </div>
+
+  <div class="card">
+    <h2>Global Controls</h2>
+    <div class="globals-row">
+      <div class="ctrl">
+        <label>Gain Curve</label>
+        <select id="gain_curve">
+          <option value="linear" selected>linear</option>
+          <option value="sqrt">sqrt</option>
+          <option value="log">log</option>
+        </select>
+      </div>
+      <div class="ctrl">
+        <label>Thresh (dB)</label>
+        <input id="thresh_db" type="number" min="-96" max="0" step="0.1" value="-30">
+      </div>
+      <div class="ctrl">
+        <label>Tilt (dB/oct)</label>
+        <input id="tilt_db" type="number" min="-48" max="0" step="0.5" value="-12">
+      </div>
+      <div class="ctrl">
+        <label>Max Voices</label>
+        <input id="max_voices" type="number" min="1" max="16" step="1" value="6">
+      </div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>Harmonics</h2>
+    <div id="harmonics" class="hstrip"></div>
+  </div>
+
+<audio id="original" controls style="width:100%;margin-bottom:8px;"></audio>
+<audio id="synth" controls style="width:100%;margin-bottom:8px;"></audio>
+
+  <div class="actions">
+    <button id="play-orig" class="play">▶ Play Original</button>
+    <button id="play-synth" class="play">▶ Play Synth</button>
+    <button id="play-both" class="play">▶ Play Both</button>
+    <button id="render-btn" class="primary">Render</button>
+    <button id="reset-btn">Reset to Defaults</button>
+    <button id="save-btn">Save Preset</button>
+    <button id="load-btn">Load Preset</button>
+    <button id="download-btn">Download WAV</button>
+  </div>
+
+  <div class="card">
+    <h2>Rendered</h2>
+    <audio id="render-audio" controls style="width:100%;"></audio>
+    <div class="sub" style="margin-top:4px;">
+      <a id="download-link" style="display:none; color:#58a6ff;" href="#" download>Download WAV</a>
+    </div>
+  </div>
+
+  <div id="status" class="status"></div>
+</div>
+
+<script>
+const DEFAULT_STATE = {
+  currentSample: '',
+  gain_curve: 'linear',
+  thresh_db: -30,
+  tilt_db: -12,
+  max_voices: 6,
+  per_harmonic_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+  wave_shapes: ['sine', 'sine', 'sine', 'sine', 'sine', 'sine']
+};
+let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+let lastBlobUrl = null;
+let debounceTimer = null;
+let originalAudioEl = null;
+let synthAudioEl = null;
+
+function setStatus(msg, type) {
+  const el = document.getElementById('status');
+  el.textContent = msg || '';
+  el.className = 'status' + (type === 'err' ? ' err' : type === 'ok' ? ' ok' : '');
+}
+
+function makeHarmonics() {
+  const root = document.getElementById('harmonics');
+  root.innerHTML = '';
+  const waveOpts = ['sine','square','saw','triangle'];
+  for (let i=0; i<6; i++) {
+    const n = i+1;
+    const d = document.createElement('div');
+    d.className = 'hcol';
+    d.innerHTML = `
+      <div class="hname">H${n}</div>
+      <input type="range" class="vslider" id="gain${i}" min="0" max="2" step="0.01" value="1">
+      <div class="hval" id="val${i}">1.00</div>
+      <select id="shape${i}">${
+        waveOpts.map(w => `<option value="${w}"${w==='sine'?' selected':''}>${w}</option>`).join('')
+      }</select>
+    `;
+    root.appendChild(d);
+    const rng = d.querySelector('#gain'+i);
+    const outv = d.querySelector('#val'+i);
+    const sync = () => { outv.textContent = parseFloat(rng.value).toFixed(2); };
+    rng.addEventListener('input', sync);
+    sync();
+  }
+}
+
+function syncDOMToState() {
+  const sel = document.getElementById('sample');
+  state.currentSample = sel ? (sel.value || '') : '';
+  state.gain_curve = document.getElementById('gain_curve').value;
+  state.thresh_db = parseFloat(document.getElementById('thresh_db').value) || -30;
+  state.tilt_db = parseFloat(document.getElementById('tilt_db').value) || -12;
+  state.max_voices = parseInt(document.getElementById('max_voices').value, 10) || 6;
+  state.per_harmonic_gains = [];
+  state.wave_shapes = [];
+  for (let i=0; i<6; i++) {
+    const g = document.getElementById('gain'+i);
+    const s = document.getElementById('shape'+i);
+    state.per_harmonic_gains.push( g ? parseFloat(g.value) : 1.0 );
+    state.wave_shapes.push( s ? s.value : 'sine' );
+  }
+}
+
+function syncStateToDOM() {
+  const sel = document.getElementById('sample');
+  if (sel && state.currentSample) {
+    if (Array.from(sel.options).some(o => o.value === state.currentSample)) {
+      sel.value = state.currentSample;
+    }
+  }
+  const gc = document.getElementById('gain_curve');
+  if (gc) gc.value = state.gain_curve;
+  const th = document.getElementById('thresh_db');
+  if (th) th.value = state.thresh_db;
+  const ti = document.getElementById('tilt_db');
+  if (ti) ti.value = state.tilt_db;
+  const mv = document.getElementById('max_voices');
+  if (mv) mv.value = state.max_voices;
+  for (let i=0; i<6; i++) {
+    const g = document.getElementById('gain'+i);
+    const s = document.getElementById('shape'+i);
+    const v = document.getElementById('val'+i);
+    if (g) g.value = state.per_harmonic_gains[i] != null ? state.per_harmonic_gains[i] : 1.0;
+    if (v) v.textContent = parseFloat(g ? g.value : (state.per_harmonic_gains[i] || 1)).toFixed(2);
+    if (s) s.value = state.wave_shapes[i] || 'sine';
+  }
+  updateMeta();
+}
+
+function updateReadouts() {
+  for (let i=0; i<6; i++) {
+    const g = document.getElementById('gain'+i);
+    const v = document.getElementById('val'+i);
+    if (g && v) v.textContent = parseFloat(g.value).toFixed(2);
+  }
+}
+
+function onParamChange() {
+  syncDOMToState();
+  updateReadouts();
+  updateMeta();
+  if (originalAudioEl && state.currentSample) {
+    originalAudioEl.src = '/orig/' + encodeURIComponent(state.currentSample);
+  }
+  if (debounceTimer) clearTimeout(debounceTimer);
+  debounceTimer = setTimeout(() => {
+    debounceTimer = null;
+    doRender();
+  }, 300);
+}
+
+function onRender() {
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    debounceTimer = null;
+  }
+  doRender();
+}
+
+async function doRender() {
+  const btn = document.getElementById('render-btn');
+  const sample_id = state.currentSample;
+  if (!sample_id) {
+    setStatus('Select a sample', 'err');
+    return;
+  }
+  btn.disabled = true;
+  const origLabel = btn.textContent;
+  btn.textContent = 'Rendering…';
+  setStatus('Sending POST /render...');
+  const payload = {
+    sample_id: sample_id,
+    gain_curve: state.gain_curve,
+    thresh_db: state.thresh_db,
+    tilt_db: state.tilt_db,
+    spectral_tilt_db: state.tilt_db,
+    max_voices: state.max_voices,
+    per_harmonic_gains: state.per_harmonic_gains,
+    wave_shapes: state.wave_shapes
+  };
+  try {
+    const resp = await fetch('/render', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (resp.ok) {
+      const blob = await resp.blob();
+      if (lastBlobUrl) { try { URL.revokeObjectURL(lastBlobUrl); } catch(_){} }
+      lastBlobUrl = URL.createObjectURL(blob);
+      const ra = document.getElementById('render-audio');
+      if (ra) ra.src = lastBlobUrl;
+      const synth = document.getElementById('synth');
+      if (synth) {
+        synth.src = lastBlobUrl;
+        synth.play().catch(() => {});
+      }
+      const dl = document.getElementById('download-link');
+      if (dl) {
+        dl.href = lastBlobUrl;
+        dl.download = (sample_id || 'render') + '_render.wav';
+        dl.style.display = 'inline';
+      }
+      setStatus('Render complete (200). Ready to play.', 'ok');
+    } else {
+      let errMsg = 'HTTP ' + resp.status;
+      try {
+        const j = await resp.json();
+        errMsg = j.error || j.detail || errMsg;
+      } catch(_) {
+        try { errMsg += ' ' + (await resp.text()).slice(0,120); } catch(e){}
+      }
+      setStatus('Render failed: ' + errMsg, 'err');
+    }
+  } catch(e) {
+    setStatus('Fetch error: ' + e.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = origLabel;
+  }
+}
+
+function updateMeta() {
+  const id = state.currentSample || (document.getElementById('sample') ? document.getElementById('sample').value : '');
+  const m = document.getElementById('meta');
+  if (m) m.textContent = id ? id : '';
+}
+
+async function loadSamples() {
+  const sel = document.getElementById('sample');
+  try {
+    const r = await fetch('/samples');
+    if (!r.ok) throw new Error(r.status);
+    const j = await r.json();
+    const list = j.samples || [];
+    sel.innerHTML = '';
+    if (!list.length) {
+      sel.innerHTML = '<option value="">(no samples)</option>';
+      setStatus('No samples discovered', 'err');
+      return;
+    }
+    list.forEach(s => {
+      const o = document.createElement('option');
+      o.value = s.id;
+      o.textContent = s.label + (s.duration_s != null ? ' ('+s.duration_s+'s)' : '');
+      sel.appendChild(o);
+    });
+    if (state.currentSample && Array.from(sel.options).some(o => o.value === state.currentSample)) {
+      sel.value = state.currentSample;
+    } else {
+      sel.selectedIndex = 0;
+      state.currentSample = sel.value;
+    }
+    updateMeta();
+    loadOriginalForCurrent();
+    setStatus('Loaded ' + list.length + ' samples');
+  } catch(e) {
+    sel.innerHTML = '<option>(load failed)</option>';
+    setStatus('Failed to fetch /samples: ' + e, 'err');
+  }
+}
+
+function loadOriginalForCurrent() {
+  if (!originalAudioEl) originalAudioEl = document.getElementById('original');
+  const id = state.currentSample || (document.getElementById('sample') ? document.getElementById('sample').value : '');
+  if (originalAudioEl && id) {
+    originalAudioEl.src = '/orig/' + encodeURIComponent(id);
+  }
+}
+
+function bindControls() {
+  const changeIds = ['sample', 'gain_curve'];
+  changeIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('change', onParamChange);
+  });
+  const inputIds = ['thresh_db', 'tilt_db', 'max_voices'];
+  inputIds.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', onParamChange);
+  });
+  for (let i=0; i<6; i++) {
+    const g = document.getElementById('gain'+i);
+    const s = document.getElementById('shape'+i);
+    if (g) g.addEventListener('input', onParamChange);
+    if (s) s.addEventListener('change', onParamChange);
+  }
+}
+
+const PRESET_PREFIX = 'voice_shaper_preset:';
+const LAST_KEY = 'voice_shaper_last_preset';
+
+function savePreset() {
+  syncDOMToState();
+  const name = prompt('Preset name?');
+  if (!name || !name.trim()) return;
+  const key = PRESET_PREFIX + name.trim();
+  try {
+    localStorage.setItem(key, JSON.stringify(state));
+    localStorage.setItem(LAST_KEY, name.trim());
+    setStatus('Preset "' + name.trim() + '" saved', 'ok');
+  } catch(e) {
+    setStatus('Save failed: ' + e, 'err');
+  }
+}
+
+function loadPreset() {
+  const keys = [];
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (k && k.startsWith(PRESET_PREFIX)) keys.push(k);
+  }
+  if (!keys.length) {
+    setStatus('No saved presets', 'err');
+    return;
+  }
+  const names = keys.map(k => k.slice(PRESET_PREFIX.length));
+  const choice = prompt('Load preset name:' + String.fromCharCode(10) + names.join(String.fromCharCode(10)));
+  if (!choice) return;
+  const key = PRESET_PREFIX + choice.trim();
+  const raw = localStorage.getItem(key);
+  if (!raw) {
+    setStatus('Preset not found', 'err');
+    return;
+  }
+  try {
+    const loaded = JSON.parse(raw);
+    state = {
+      ...JSON.parse(JSON.stringify(DEFAULT_STATE)),
+      ...loaded
+    };
+    if (!state.currentSample) state.currentSample = '';
+    syncStateToDOM();
+    loadOriginalForCurrent();
+    setStatus('Preset "' + choice.trim() + '" loaded', 'ok');
+    localStorage.setItem(LAST_KEY, choice.trim());
+  } catch(e) {
+    setStatus('Load failed: ' + e, 'err');
+  }
+}
+
+function resetToDefaults() {
+  state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  syncStateToDOM();
+  loadOriginalForCurrent();
+  setStatus('Defaults restored');
+}
+
+function autoLoadLastPreset() {
+  try {
+    const lastName = localStorage.getItem(LAST_KEY);
+    if (!lastName) return false;
+    const key = PRESET_PREFIX + lastName;
+    const raw = localStorage.getItem(key);
+    if (!raw) return false;
+    const loaded = JSON.parse(raw);
+    state = {
+      ...JSON.parse(JSON.stringify(DEFAULT_STATE)),
+      ...loaded
+    };
+    return true;
+  } catch(e) { return false; }
+}
+
+async function doDownload() {
+  const selId = state.currentSample || (document.getElementById('sample') ? document.getElementById('sample').value : '') || 'voice';
+  if (lastBlobUrl) {
+    const a = document.createElement('a');
+    a.href = lastBlobUrl;
+    a.download = selId + '_shaped.wav';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    return;
+  }
+  const payload = {
+    sample_id: selId,
+    gain_curve: state.gain_curve,
+    thresh_db: state.thresh_db,
+    tilt_db: state.tilt_db,
+    spectral_tilt_db: state.tilt_db,
+    max_voices: state.max_voices,
+    per_harmonic_gains: state.per_harmonic_gains,
+    wave_shapes: state.wave_shapes
+  };
+  setStatus('Re-rendering for download...');
+  try {
+    const resp = await fetch('/render', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(payload)
+    });
+    if (!resp.ok) throw new Error('render ' + resp.status);
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = selId + '_shaped.wav';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setStatus('Downloaded ' + selId + '_shaped.wav', 'ok');
+  } catch(e) {
+    setStatus('Download render failed: ' + e.message, 'err');
+  }
+}
+
+function initPlayback() {
+  originalAudioEl = document.getElementById('original');
+  synthAudioEl = document.getElementById('synth');
+
+  document.getElementById('play-orig').addEventListener('click', () => {
+    if (originalAudioEl && originalAudioEl.src) {
+      originalAudioEl.play().catch(() => setStatus('Play original failed'));
+    } else {
+      setStatus('No original loaded');
+    }
+  });
+  document.getElementById('play-synth').addEventListener('click', () => {
+    if (synthAudioEl && synthAudioEl.src) {
+      synthAudioEl.play().catch(() => setStatus('Play synth failed'));
+    } else {
+      setStatus('Render first for synth playback');
+    }
+  });
+  document.getElementById('play-both').addEventListener('click', async () => {
+    if (!originalAudioEl || !synthAudioEl) return;
+    originalAudioEl.pause();
+    synthAudioEl.pause();
+    originalAudioEl.currentTime = 0;
+    synthAudioEl.currentTime = 0;
+    try {
+      await Promise.all([
+        originalAudioEl.play().catch(()=>{}),
+        synthAudioEl.play().catch(()=>{})
+      ]);
+    } catch(_) {}
+  });
+}
+
+function init() {
+  makeHarmonics();
+  state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+  syncStateToDOM();
+  const didLoad = autoLoadLastPreset();
+  if (didLoad) {
+    syncStateToDOM();
+  }
+  bindControls();
+  initPlayback();
+  document.getElementById('render-btn').addEventListener('click', onRender);
+  document.getElementById('reset-btn').addEventListener('click', resetToDefaults);
+  document.getElementById('save-btn').addEventListener('click', savePreset);
+  const loadBtn = document.getElementById('load-btn');
+  if (loadBtn) loadBtn.addEventListener('click', loadPreset);
+  document.getElementById('download-btn').addEventListener('click', doDownload);
+  loadSamples();
+}
+
+document.addEventListener('DOMContentLoaded', init);
+</script>
 </body>
 </html>
 """
@@ -261,7 +826,7 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                                  "text/html; charset=utf-8",
                                  extra_headers={"Cache-Control": "no-store"})
             elif path == "/samples":
-                samples = discover_samples(self.voice_dir)
+                samples = _SAMPLES_CACHE if _SAMPLES_CACHE is not None else discover_samples(self.voice_dir)
                 self._send_json(HTTPStatus.OK, {
                     "count": len(samples),
                     "voice_dir": str(self.voice_dir),
@@ -296,6 +861,8 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
         try:
             if path == "/render":
                 self._handle_post_render()
+            elif path == "/samples/refresh":
+                self._handle_post_samples_refresh()
             else:
                 self._send_json(HTTPStatus.NOT_FOUND, {
                     "error": "not_found",
@@ -308,22 +875,16 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
     # ---------------------------------------------------------------- handlers
 
     def _handle_get_orig(self, sample_id: str) -> None:
-        if not SAFE_ID_RE.match(sample_id):
-            self._send_json(HTTPStatus.BAD_REQUEST, {
-                "error": "invalid_sample_id",
-                "sample_id": sample_id,
-            })
-            return
-        wav_path = self.voice_dir / f"{sample_id}.wav"
-        if not wav_path.is_file():
+        cache = _SAMPLES_CACHE or []
+        sample = next((s for s in cache if s.get("id") == sample_id), None)
+        if sample is None:
             self._send_json(HTTPStatus.NOT_FOUND, {
-                "error": "sample_not_found",
-                "sample_id": sample_id,
-                "voice_dir": str(self.voice_dir),
+                "error": "sample not found",
             })
             return
+        wav_path = Path(sample.get("path") or "")
         try:
-            data = wav_path.read_bytes()
+            size = wav_path.stat().st_size
         except OSError as exc:
             log.error("read failed for %s: %s", wav_path, exc)
             self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {
@@ -331,13 +892,26 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                 "sample_id": sample_id,
             })
             return
-        self._send_bytes(HTTPStatus.OK, data, "audio/wav",
-                         extra_headers={"Cache-Control": "no-store"})
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", "audio/wav")
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        try:
+            with wav_path.open("rb") as f:
+                while True:
+                    chunk = f.read(64 * 1024)
+                    if not chunk:
+                        break
+                    self.wfile.write(chunk)
+        except OSError as exc:
+            log.error("stream failed for %s: %s", wav_path, exc)
+            # headers already sent; no JSON 500 possible
 
     def _handle_get_viz(self, rel: str) -> None:
         # Strict allow-list: alnum + dot + dash + underscore + slash for
-        # subpaths. No `..`, no leading `/`, no backslashes.
-        if not rel or rel.startswith("/") or ".." in rel.split("/"):
+        # subpaths. No leading `/`, no backslashes. Traversal caught by resolve guard.
+        if not rel or rel.startswith("/"):
             self._send_json(HTTPStatus.BAD_REQUEST, {
                 "error": "invalid_viz_path",
                 "path": rel,
@@ -379,12 +953,11 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                          extra_headers={"Cache-Control": "public, max-age=60"})
 
     def _handle_post_render(self) -> None:
-        """Stub. Returns 501 until the render handler is wired.
+        """Wired to synth_pure + VoiceCache.
 
-        This deliberately parses the body (so we can validate the wiring
-        path) but does not run any synthesis. The render handler is
-        pending the synth_pure refactor (prepare_analysis +
-        synthesize_prepared) and the VoiceCache layer.
+        Parses/validates JSON, loads sample WAV (via sf), prepares analysis
+        (with VoiceCache), converts params, calls synthesize_prepared,
+        post-processes and returns 16-bit stereo WAV bytes at SAMPLE_RATE.
         """
         body, err = self._read_json_body()
         if err is not None or body is None:
@@ -397,8 +970,8 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
         sample_id = body.get("sample_id")
         if not isinstance(sample_id, str) or not SAFE_ID_RE.match(sample_id):
             self._send_json(HTTPStatus.BAD_REQUEST, {
-                "error": "missing_or_invalid_sample_id",
-                "hint": "supply {\"sample_id\": \"<alnum/dash/underscore>\"}",
+                "error": "missing_sample_id",
+                "detail": "sample_id (matching SAFE_ID_RE) is required",
             })
             return
 
@@ -407,24 +980,152 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             self._send_json(HTTPStatus.NOT_FOUND, {
                 "error": "sample_not_found",
                 "sample_id": sample_id,
-                "voice_dir": str(self.voice_dir),
             })
             return
 
-        # Stub response — wired once the render handler lands.
-        self._send_json(HTTPStatus.NOT_IMPLEMENTED, {
-            "error": "not_implemented",
-            "endpoint": "POST /render",
-            "detail": (
-                "render handler is pending the synth_pure refactor and "
-                "VoiceCache layer. The skeleton accepts JSON, validates "
-                "sample_id, and confirms the file exists."
-            ),
-            "received": {k: body.get(k) for k in (
-                "sample_id", "gain_curve", "spectral_tilt_db", "thresh_db",
-                "noise_floor_db", "max_voices", "per_harmonic_gains", "wave_shapes",
-            ) if k in body},
-            "sample_path": str(wav_path),
+        req_start = time.monotonic()
+
+        # Wrap the synth_pure / VoiceCache imports (plus sf/np) so a missing
+        # optional dep falls back cleanly to 501 stub behavior.
+        try:
+            import numpy as np
+            import soundfile as sf
+            sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+            from tools.synth_pure import prepare_analysis, synthesize_prepared, SAMPLE_RATE
+            from tools.voice_cache import VoiceCache
+        except Exception as imp_exc:
+            log.warning("synth_pure or voice_cache imports failed: %s", imp_exc)
+            self._send_json(HTTPStatus.NOT_IMPLEMENTED, {
+                "error": "not_implemented",
+                "detail": "synth_pure module not available",
+            })
+            return
+
+        # LOAD AUDIO — detect the loud channel (R24 capture is stereo with
+        # voice on Ch2; Ch1 is monitor bleed at -90dB). Mirror
+        # build_voice_compare_v3.pick_mono_channel so the server agrees with
+        # the dashboard builder on which channel has the voice signal.
+        try:
+            y, sr = sf.read(str(wav_path), always_2d=False)
+            y = pick_loud_channel(y)
+            y = y.astype(np.float32)
+        except Exception as load_exc:
+            log.error("failed to load %s: %s", wav_path, load_exc)
+            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {
+                "error": "load_failed",
+                "detail": str(load_exc),
+            })
+            return
+
+        # PREPARE WITH CACHING (lazy module singleton)
+        global _voice_cache
+        if _voice_cache is None:
+            _voice_cache = VoiceCache()
+        anal_start = time.monotonic()
+        prepared = _voice_cache.get(wav_path)
+        if prepared is None:
+            prepared = prepare_analysis(y, sr)
+            _voice_cache.store(wav_path, prepared)
+            anal_ms = (time.monotonic() - anal_start) * 1000.0
+            cached = False
+        else:
+            anal_ms = 0.0
+            cached = True
+
+        # CONVERT params: lists -> 1-based dicts for the synthesize API
+        try:
+            gain_curve = str(body.get("gain_curve", "sqrt"))
+            spectral_tilt_db = float(body.get("spectral_tilt_db", 0.0))
+            thresh_db = float(body.get("thresh_db", -40.0))
+            noise_floor_db = float(body.get("noise_floor_db", -60.0))
+            max_voices = int(body.get("max_voices", 8))
+            if not (1 <= max_voices <= 64):
+                raise ValueError("max_voices must be in range 1..64")
+            gh_list = body.get("per_harmonic_gains", [1.0] * 6)
+            if not isinstance(gh_list, (list, tuple)) or len(gh_list) != 6:
+                raise ValueError("per_harmonic_gains must be list of 6 floats")
+            per_harmonic_gains = {i + 1: float(gh_list[i]) for i in range(6)}
+            ws_list = body.get("wave_shapes", ["sine"] * 6)
+            if not isinstance(ws_list, (list, tuple)) or len(ws_list) != 6:
+                raise ValueError("wave_shapes must be list of 6 strings")
+            valid_shapes = {"sine", "square", "saw", "triangle"}
+            for s in ws_list:
+                if not isinstance(s, str) or s not in valid_shapes:
+                    raise ValueError(f"invalid wave shape: {s}")
+            wave_shapes = {i + 1: s for i, s in enumerate(ws_list)}
+        except Exception as param_exc:
+            self._send_json(HTTPStatus.BAD_REQUEST, {
+                "error": "invalid_parameters",
+                "detail": str(param_exc),
+            })
+            return
+
+        # RUN SYNTH
+        synth_start = time.monotonic()
+        try:
+            out = synthesize_prepared(
+                prepared,
+                thresh_db=thresh_db,
+                noise_floor_db=noise_floor_db,
+                max_voices=max_voices,
+                gain_curve=gain_curve,
+                spectral_tilt_db=spectral_tilt_db,
+                per_harmonic_gains=per_harmonic_gains,
+                wave_shapes=wave_shapes,
+            )
+        except Exception as synth_exc:
+            log.error("synthesize_prepared failed: %s", synth_exc)
+            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {
+                "error": "synthesis_failed",
+                "detail": str(synth_exc),
+            })
+            return
+        synth_ms = (time.monotonic() - synth_start) * 1000.0
+
+        # TO WAV BYTES: softclip or norm, int16, duplicate to stereo interleaved
+        try:
+            peak = float(np.abs(out).max()) if len(out) else 0.0
+            if peak > 0.95:
+                out = np.tanh(out)
+            elif peak > 0.0:
+                out = out * (0.95 / peak)
+            pcm = (np.clip(out, -1.0, 1.0) * 32767).astype(np.int16)
+            pcm_stereo = np.column_stack([pcm, pcm]).reshape(-1)
+            buf = io.BytesIO()
+            with wave.open(buf, "wb") as w:
+                w.setnchannels(2)
+                w.setsampwidth(2)
+                w.setframerate(SAMPLE_RATE)
+                w.writeframes(pcm_stereo.tobytes())
+            wav_bytes = buf.getvalue()
+        except Exception as enc_exc:
+            log.error("wav encoding failed: %s", enc_exc)
+            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {
+                "error": "encode_failed",
+                "detail": str(enc_exc),
+            })
+            return
+
+        total_ms = (time.monotonic() - req_start) * 1000.0
+        log.info(
+            "POST /render id=%s total=%.1fms analysis%s=%.1fms synth=%.1fms peak=%.3f",
+            sample_id, total_ms, "(cached)" if cached else "", anal_ms, synth_ms, peak
+        )
+
+        self._send_bytes(HTTPStatus.OK, wav_bytes, "audio/wav",
+                         extra_headers={"Cache-Control": "no-store"})
+
+    def _handle_post_samples_refresh(self) -> None:
+        """Force a cache refresh by re-running discovery.
+
+        Returns the fresh count and voice_dir. The refresh is logged by
+        refresh_samples_cache().
+        """
+        count = refresh_samples_cache(self.voice_dir)
+        self._send_json(HTTPStatus.OK, {
+            "ok": True,
+            "count": count,
+            "voice_dir": str(self.voice_dir),
         })
 
 
@@ -502,6 +1203,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     if not voice_dir.is_dir():
         log.error("voice dir does not exist: %s", voice_dir)
         return 2
+
+    refresh_samples_cache(voice_dir)
 
     handler_cls = make_handler(voice_dir, viz_dir)
     # ThreadingHTTPServer so /render (when wired) does not block /samples etc.
