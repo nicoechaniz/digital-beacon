@@ -535,7 +535,7 @@ def synthesize_prepared(prepared: dict,
     last_active = np.zeros(N_HARMONICS + 1, dtype=bool)
 
     out = np.zeros(total_samples, dtype=np.float64)
-    block_size = 256
+    block_size = 512
     floor_abs = abs(noise_floor_db)
 
     # Pre-compute per-block interpolated F0 and gains to avoid per-sample
@@ -552,6 +552,46 @@ def synthesize_prepared(prepared: dict,
         block_voiced[b] = bool(voiced[idx])
         block_ft[b] = float(f0[idx])
         block_gains[b] = gains_db[idx]
+
+    # Track previous block's active harmonic mask so we can detect set changes
+    # and apply boundary crossfading to avoid clicks from phase discontinuities.
+    prev_active_mask: np.ndarray | None = None
+
+    # Per-sample renderer extracted so crossfade path can reuse without duplication.
+    # Mutates the provided phases_arr/envs_arr in place and returns the sample value.
+    def _next_sample(frac: float, ft: float, use_active: np.ndarray,
+                     phases_arr: np.ndarray, envs_arr: np.ndarray) -> float:
+        mix = 0.0
+        for n in range(1, N_HARMONICS + 1):
+            target_env = 1.0 if use_active[n - 1] else 0.0
+            if target_env > envs_arr[n]:
+                envs_arr[n] = min(target_env, envs_arr[n] + 1.0 / (0.010 * SAMPLE_RATE))
+            else:
+                envs_arr[n] = max(target_env, envs_arr[n] - 1.0 / (0.030 * SAMPLE_RATE))
+            if envs_arr[n] <= 0:
+                continue
+            g_db = frame_gains[n - 1]
+            g_lin = max(0.0, min(1.0, (g_db + floor_abs) / floor_abs))
+            if gain_curve == "sqrt":
+                g_norm = np.sqrt(g_lin)
+            elif gain_curve == "square":
+                g_norm = g_lin * g_lin
+            else:
+                g_norm = g_lin
+            # Per-harmonic gain override (between dB→linear and tilt).
+            g_norm *= harm_gains[n - 1]
+            # Apply spectral tilt (natural harmonic decay).
+            if tilt_gains is not None:
+                g_norm *= tilt_gains[n - 1]
+            phases_arr[n] += 2.0 * np.pi * ft * n / SAMPLE_RATE
+            # Per-harmonic waveform selection (default sine).
+            shape = shape_map.get(n, "sine")
+            wave_val = _waveform_value(shape, phases_arr[n])
+            mix += g_norm * envs_arr[n] * wave_val
+
+        n_active = int(np.sum(envs_arr > 0.001))
+        norm = 1.0 / np.sqrt(max(n_active, 1))
+        return mix * norm
 
     for block_idx in range(n_blocks):
         block_start = block_idx * block_size
@@ -582,48 +622,55 @@ def synthesize_prepared(prepared: dict,
         else:
             active_mask = np.zeros(N_HARMONICS, dtype=bool)
 
-        for s in range(n_samples):
-            sample_t = block_start + s
-            # Interpolate F0 smoothly within the block
-            frac = (s + 0.5) / block_size if block_size > 0 else 0
-            ft = ft_start + (ft_end - ft_start) * frac
-            mix = 0.0
-            for n in range(1, N_HARMONICS + 1):
-                target_env = 1.0 if active_mask[n - 1] else 0.0
-                if target_env > envs[n]:
-                    envs[n] = min(target_env, envs[n] + 1.0 / (0.010 * SAMPLE_RATE))
-                else:
-                    envs[n] = max(target_env, envs[n] - 1.0 / (0.030 * SAMPLE_RATE))
-                if envs[n] <= 0:
-                    continue
-                g_db = frame_gains[n - 1]
-                g_lin = max(0.0, min(1.0, (g_db + floor_abs) / floor_abs))
-                if gain_curve == "sqrt":
-                    g_norm = np.sqrt(g_lin)
-                elif gain_curve == "square":
-                    g_norm = g_lin * g_lin
-                else:
-                    g_norm = g_lin
-                # Per-harmonic gain override (between dB→linear and tilt).
-                g_norm *= harm_gains[n - 1]
-                # Apply spectral tilt (natural harmonic decay).
-                if tilt_gains is not None:
-                    g_norm *= tilt_gains[n - 1]
-                phases[n] += 2.0 * np.pi * ft * n / SAMPLE_RATE
-                # Per-harmonic waveform selection (default sine).
-                shape = shape_map.get(n, "sine")
-                wave_val = _waveform_value(shape, phases[n])
-                mix += g_norm * envs[n] * wave_val
-
-            n_active = int(np.sum(envs > 0.001))
-            norm = 1.0 / np.sqrt(max(n_active, 1))
-            out[sample_t] = mix * norm
+        # Block-boundary crossfade when active harmonic SET changes.
+        # A very short (4-sample) linear crossfade between the "continuation
+        # under previous mask" and "start under new mask" prevents amplitude
+        # steps / phase jumps from becoming audible clicks. Uses overlap of
+        # two short renders (old + new) mixed with linear alpha; keeps exact
+        # duration and all other behaviors (gains, shapes, tilt, noise, envs).
+        cf = 4
+        do_xfade = (block_idx > 0 and prev_active_mask is not None and
+                    not np.array_equal(active_mask, prev_active_mask) and
+                    block_start > 0)
+        if do_xfade:
+            cf = min(cf, n_samples)
+            # Render cf samples continuing the PREVIOUS active set (from state at
+            # block boundary, which matches end of prior block).
+            old_phases = phases.copy()
+            old_envs = envs.copy()
+            old_samples = np.empty(cf, dtype=np.float64)
+            for s in range(cf):
+                frac = (s + 0.5) / block_size if block_size > 0 else 0
+                ft = ft_start + (ft_end - ft_start) * frac
+                old_samples[s] = _next_sample(frac, ft, prev_active_mask, old_phases, old_envs)
+            # Render same cf samples under the NEW active set (advances real state).
+            new_samples = np.empty(cf, dtype=np.float64)
+            for s in range(cf):
+                frac = (s + 0.5) / block_size if block_size > 0 else 0
+                ft = ft_start + (ft_end - ft_start) * frac
+                new_samples[s] = _next_sample(frac, ft, active_mask, phases, envs)
+            # Linear crossfade: old fades out, new fades in.
+            for s in range(cf):
+                alpha = (s + 0.5) / cf
+                out[block_start + s] = (1.0 - alpha) * old_samples[s] + alpha * new_samples[s]
+            # Remaining non-transition samples of block under new mask (state already advanced).
+            for s in range(cf, n_samples):
+                frac = (s + 0.5) / block_size if block_size > 0 else 0
+                ft = ft_start + (ft_end - ft_start) * frac
+                out[block_start + s] = _next_sample(frac, ft, active_mask, phases, envs)
+        else:
+            for s in range(n_samples):
+                frac = (s + 0.5) / block_size if block_size > 0 else 0
+                ft = ft_start + (ft_end - ft_start) * frac
+                out[block_start + s] = _next_sample(frac, ft, active_mask, phases, envs)
 
         if block_idx % 50 == 0:
             active_count = int(active_mask.sum())
             t_b = block_start / SAMPLE_RATE
             log.info("  t=%.2fs voiced=%d f0=%.1f active=%d",
                      t_b, voiced_start, ft_start, active_count)
+
+        prev_active_mask = active_mask.copy()
 
     # Mix aperiodic noise (if enabled). Uses stft_raw/freqs_stft captured in prepare.
     if noise_mix_db > -120:

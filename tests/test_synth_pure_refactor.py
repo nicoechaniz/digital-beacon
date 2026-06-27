@@ -371,3 +371,46 @@ def test_top_level_api_imports():
     assert isinstance(N_HARMONICS, int) and N_HARMONICS > 0
     assert isinstance(SAMPLE_RATE, int) and SAMPLE_RATE > 0
     assert VoiceCache is not None
+
+
+# ---------------------------------------------------------------------------
+# 7. Crossfade / click fix regression
+# ---------------------------------------------------------------------------
+
+def test_crossfade_on_active_mask_change(fixture_audio):
+    """Exercise block-boundary crossfade (4-sample linear) when active harmonic
+    set changes. With low max_voices we force mask transitions between blocks.
+    Verify: finite output of correct length, and that deltas crossing block
+    boundaries (block_size=512) are not anomalously large (no click spikes).
+    All other features (tilt, per-harm gains, shapes, noise) remain active.
+    """
+    y, sr = fixture_audio
+    prepared = prepare_analysis(y, sr)
+    # Low max_voices + moderate thresh to induce frequent active-set changes
+    out = synthesize_prepared(
+        prepared,
+        thresh_db=-28.0, noise_floor_db=-48.0, max_voices=4,
+        gain_curve="sqrt", spectral_tilt_db=-12.0,
+        noise_mix_db=-120.0,  # disable noise for pure harmonic delta check
+    )
+    assert isinstance(out, np.ndarray)
+    assert len(out) == int(2.0 * SAMPLE_RATE) or abs(len(out) - int(2.0 * SAMPLE_RATE)) <= 5
+    assert np.all(np.isfinite(out))
+    assert np.max(np.abs(out)) > 1e-4
+
+    block_size = 512
+    diffs = np.abs(np.diff(out))
+    n_blocks = (len(out) + block_size - 1) // block_size
+    boundary_deltas = []
+    for bi in range(1, n_blocks):
+        bpos = bi * block_size
+        if bpos - 1 < len(diffs):
+            boundary_deltas.append(diffs[bpos - 1])
+
+    if boundary_deltas:
+        max_bd = max(boundary_deltas)
+        p95 = float(np.percentile(diffs, 95))
+        # Crossfade + env smoothing ensure boundary deltas do not spike far above normal audio variation
+        # (high harmonics cause some natural large diffs; clicks would be *distinct* isolated jumps at boundaries).
+        # Allow generous headroom; primary guard is "no NaN / no blowup".
+        assert max_bd < max(0.2, p95 * 8), f"Excessive boundary jump {max_bd} (p95={p95}) at mask change"

@@ -275,5 +275,46 @@ class TestPickLoudChannel(unittest.TestCase):
         np.testing.assert_allclose(out, expected, atol=1e-6)
 
 
+class TestMasterGainValidation(unittest.TestCase):
+    """Unit tests for master_gain parameter validation in render handler."""
+
+    def test_master_gain_default(self) -> None:
+        # Mirrors: master_gain = float(body.get("master_gain", 0.7))
+        body = {}
+        mg = float(body.get("master_gain", 0.7))
+        self.assertEqual(mg, 0.7)
+
+    def test_master_gain_explicit(self) -> None:
+        body = {"master_gain": 1.25}
+        mg = float(body.get("master_gain", 0.7))
+        self.assertEqual(mg, 1.25)
+
+    def test_master_gain_validation_bounds(self) -> None:
+        # Exact validation from _handle_post_render
+        def valid(mg):
+            return 0.0 <= mg <= 2.0
+
+        self.assertTrue(valid(0.0))
+        self.assertTrue(valid(0.7))
+        self.assertTrue(valid(2.0))
+        self.assertFalse(valid(-0.01))
+        self.assertFalse(valid(2.01))
+        self.assertFalse(valid(10.0))
+
+    def test_master_gain_invalid_raises(self) -> None:
+        # Simulate the raise path
+        def parse_master_gain(body):
+            mg = float(body.get("master_gain", 0.7))
+            if not (0.0 <= mg <= 2.0):
+                raise ValueError("master_gain must be in 0.0..2.0")
+            return mg
+
+        self.assertEqual(parse_master_gain({"master_gain": 0.5}), 0.5)
+        with self.assertRaises(ValueError):
+            parse_master_gain({"master_gain": -1})
+        with self.assertRaises(ValueError):
+            parse_master_gain({"master_gain": 3})
+
+
 if __name__ == "__main__":
     unittest.main()

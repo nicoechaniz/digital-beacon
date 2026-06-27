@@ -316,6 +316,11 @@ PLACEHOLDER_HTML = """<!doctype html>
         <label>Max Voices</label>
         <input id="max_voices" type="number" min="1" max="16" step="1" value="6">
       </div>
+      <div class="ctrl">
+        <label>Master Gain <span id="val-master-gain">0.70</span></label>
+        <input id="master_gain" type="range" min="0" max="2" step="0.05" value="0.7"
+               style="width:130px;">
+      </div>
     </div>
   </div>
 
@@ -332,6 +337,9 @@ PLACEHOLDER_HTML = """<!doctype html>
     <button id="play-synth" class="play">▶ Play Synth</button>
     <button id="play-both" class="play">▶ Play Both</button>
     <button id="render-btn" class="primary">Render</button>
+    <label style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;">
+      <input type="checkbox" id="auto-render"> Auto-render on change
+    </label>
     <button id="reset-btn">Reset to Defaults</button>
     <button id="save-btn">Save Preset</button>
     <button id="load-btn">Load Preset</button>
@@ -356,6 +364,7 @@ const DEFAULT_STATE = {
   thresh_db: -30,
   tilt_db: -12,
   max_voices: 6,
+  master_gain: 0.7,
   per_harmonic_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
   wave_shapes: ['sine', 'sine', 'sine', 'sine', 'sine', 'sine']
 };
@@ -403,6 +412,8 @@ function syncDOMToState() {
   state.thresh_db = parseFloat(document.getElementById('thresh_db').value) || -30;
   state.tilt_db = parseFloat(document.getElementById('tilt_db').value) || -12;
   state.max_voices = parseInt(document.getElementById('max_voices').value, 10) || 6;
+  const mg = document.getElementById('master_gain');
+  state.master_gain = mg ? parseFloat(mg.value) : 0.7;
   state.per_harmonic_gains = [];
   state.wave_shapes = [];
   for (let i=0; i<6; i++) {
@@ -428,6 +439,10 @@ function syncStateToDOM() {
   if (ti) ti.value = state.tilt_db;
   const mv = document.getElementById('max_voices');
   if (mv) mv.value = state.max_voices;
+  const mg = document.getElementById('master_gain');
+  if (mg) mg.value = state.master_gain != null ? state.master_gain : 0.7;
+  const mgv = document.getElementById('val-master-gain');
+  if (mgv) mgv.textContent = parseFloat(mg ? mg.value : (state.master_gain || 0.7)).toFixed(2);
   for (let i=0; i<6; i++) {
     const g = document.getElementById('gain'+i);
     const s = document.getElementById('shape'+i);
@@ -445,6 +460,9 @@ function updateReadouts() {
     const v = document.getElementById('val'+i);
     if (g && v) v.textContent = parseFloat(g.value).toFixed(2);
   }
+  const mg = document.getElementById('master_gain');
+  const mgv = document.getElementById('val-master-gain');
+  if (mg && mgv) mgv.textContent = parseFloat(mg.value).toFixed(2);
 }
 
 function onParamChange() {
@@ -453,6 +471,10 @@ function onParamChange() {
   updateMeta();
   if (originalAudioEl && state.currentSample) {
     originalAudioEl.src = '/orig/' + encodeURIComponent(state.currentSample);
+  }
+  const auto = document.getElementById('auto-render');
+  if (!auto || !auto.checked) {
+    return;
   }
   if (debounceTimer) clearTimeout(debounceTimer);
   debounceTimer = setTimeout(() => {
@@ -487,6 +509,7 @@ async function doRender() {
     tilt_db: state.tilt_db,
     spectral_tilt_db: state.tilt_db,
     max_voices: state.max_voices,
+    master_gain: state.master_gain,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes
   };
@@ -586,7 +609,7 @@ function bindControls() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', onParamChange);
   });
-  const inputIds = ['thresh_db', 'tilt_db', 'max_voices'];
+  const inputIds = ['thresh_db', 'tilt_db', 'max_voices', 'master_gain'];
   inputIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', onParamChange);
@@ -654,6 +677,8 @@ function loadPreset() {
 function resetToDefaults() {
   state = JSON.parse(JSON.stringify(DEFAULT_STATE));
   syncStateToDOM();
+  const ar = document.getElementById('auto-render');
+  if (ar) ar.checked = false;
   loadOriginalForCurrent();
   setStatus('Defaults restored');
 }
@@ -692,6 +717,7 @@ async function doDownload() {
     tilt_db: state.tilt_db,
     spectral_tilt_db: state.tilt_db,
     max_voices: state.max_voices,
+    master_gain: state.master_gain,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes
   };
@@ -1101,6 +1127,9 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             noise_mix_db = float(body.get("noise_mix_db", -12.0))
             if not (-120.0 <= noise_mix_db <= 0.0):
                 raise ValueError("noise_mix_db must be in range -120..0")
+            master_gain = float(body.get("master_gain", 0.7))
+            if not (0.0 <= master_gain <= 2.0):
+                raise ValueError("master_gain must be in 0.0..2.0")
         except Exception as param_exc:
             self._send_json(HTTPStatus.BAD_REQUEST, {
                 "error": "invalid_parameters",
@@ -1130,6 +1159,9 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             })
             return
         synth_ms = (time.monotonic() - synth_start) * 1000.0
+
+        # Apply master gain BEFORE peak normalization
+        out = out * master_gain
 
         # TO WAV BYTES: softclip or norm, int16, duplicate to stereo interleaved
         try:
