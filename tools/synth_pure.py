@@ -301,6 +301,73 @@ def prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0) -> dict:
     }
 
 
+def extract_aperiodic(y, sr, f0, voiced, times, stft_raw=None, freqs_stft=None, n_fft=4096, hop=None):
+    """Extract aperiodic residual from voice signal.
+
+    Subtracts the harmonic series from the STFT to isolate noise.
+    Returns: time-domain noise signal (np.ndarray, same length as y, float64).
+    """
+    global librosa
+    if librosa is None:
+        raise ImportError("librosa is required for extract_aperiodic")
+
+    # Import at function level as specified (module-level try/except already present).
+    import librosa
+
+    y = np.asarray(y).ravel()
+    orig_len = len(y)
+
+    if hop is None:
+        hop = int(0.0464 * sr)
+
+    if stft_raw is None or freqs_stft is None:
+        # Compute from (normalized-like) y; mirror prepare_analysis approach lightly.
+        y_for_stft = y.astype(np.float32, copy=False)
+        peak = float(np.abs(y_for_stft).max()) if y_for_stft.size else 0.0
+        if peak > 1e-12:
+            y_for_stft = y_for_stft / peak
+        stft_raw = np.abs(librosa.stft(y_for_stft, n_fft=n_fft, hop_length=hop))
+        freqs_stft = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    else:
+        stft_raw = np.asarray(stft_raw, dtype=np.float32).copy()
+        freqs_stft = np.asarray(freqs_stft, dtype=np.float64)
+
+    stft_aper = stft_raw.copy()
+    # Subtract harmonic magnitudes at expected locations (nearest bin) for voiced frames.
+    n_frames = min(stft_aper.shape[1], len(f0), len(voiced))
+    for t in range(n_frames):
+        if not (voiced[t] and f0[t] > 0):
+            continue
+        ft = float(f0[t])
+        for n in range(1, N_HARMONICS + 1):
+            tgt = ft * n
+            if tgt > sr / 2 - 50:
+                break
+            if tgt <= freqs_stft[0] or tgt >= freqs_stft[-1]:
+                continue
+            mag = float(np.interp(tgt, freqs_stft, stft_raw[:, t]))
+            # Subtract from closest frequency bin; clamp >=0. This removes harmonic energy.
+            k = int(np.argmin(np.abs(freqs_stft - tgt)))
+            stft_aper[k, t] = max(0.0, stft_aper[k, t] - mag)
+
+    # Reconstruct time-domain residual using random phase (to get noisy signal
+    # whose magnitude spectrum matches the aperiodic residual envelope).
+    # Use a fixed-seed RandomState for deterministic output across calls
+    # (ensures synthesize_prepared default noise mix is reproducible).
+    rng = np.random.RandomState(0xC0DE)
+    phase = rng.uniform(-np.pi, np.pi, size=stft_aper.shape)
+    stft_complex = (stft_aper * np.exp(1j * phase)).astype(np.complex64)
+
+    noise = librosa.istft(stft_complex, hop_length=hop, n_fft=n_fft, length=orig_len if orig_len > 0 else None)
+    noise = np.asarray(noise, dtype=np.float64)
+    if orig_len > 0:
+        if len(noise) < orig_len:
+            noise = np.pad(noise, (0, orig_len - len(noise)))
+        elif len(noise) > orig_len:
+            noise = noise[:orig_len]
+    return noise
+
+
 def _waveform_value(shape: str, phase: float) -> float:
     """Evaluate one sample of a waveform at the given phase (radians).
 
@@ -329,11 +396,12 @@ def _waveform_value(shape: str, phase: float) -> float:
 def synthesize_prepared(prepared: dict,
                         thresh_db: float = -30.0,
                         noise_floor_db: float = -40.0,
-                        max_voices: int = 6,
+                        max_voices: int = 32,
                         gain_curve: str = "sqrt",
                         spectral_tilt_db: float = -12.0,
                         per_harmonic_gains: dict | None = None,
-                        wave_shapes: dict | None = None) -> np.ndarray:
+                        wave_shapes: dict | None = None,
+                        noise_mix_db: float = -12.0) -> np.ndarray:
     """Phase 2: render audio from a cached analysis dict.
 
     Parameters
@@ -354,8 +422,7 @@ def synthesize_prepared(prepared: dict,
         default was -50.0; that mismatch is preserved via synthesize()'s
         explicit noise_floor_db=-50.0 pass-through.
     max_voices : int
-        Cap simultaneous active harmonics. Default 6 (was 8 in legacy
-        synthesize(); build_voice_compare_v3 uses 6).
+        Cap simultaneous active harmonics. Default 32 (was 6)
     gain_curve : {"linear", "sqrt", "square"}
         How to map dB magnitude → 0..1 gain:
           - "linear": (g_db + |floor|) / |floor|
@@ -375,6 +442,9 @@ def synthesize_prepared(prepared: dict,
         Per-harmonic waveform override. Keys are 1-based harmonic numbers,
         values are one of: "sine", "square", "saw", "triangle".
         Unspecified harmonics default to "sine".
+    noise_mix_db : float
+        Level in dB for mixing extracted aperiodic residual after synthesis.
+        Default -12.0. Use <= -120.0 to disable mixing.
 
     Returns
     -------
@@ -555,14 +625,46 @@ def synthesize_prepared(prepared: dict,
             log.info("  t=%.2fs voiced=%d f0=%.1f active=%d",
                      t_b, voiced_start, ft_start, active_count)
 
+    # Mix aperiodic noise (if enabled). Uses stft_raw/freqs_stft captured in prepare.
+    if noise_mix_db > -120:
+        stft_r = prepared.get("stft_raw")
+        freqs_s = prepared.get("freqs_stft")
+        if stft_r is not None and freqs_s is not None:
+            # Construct dummy y sized for the *analysis* sr/length so extract returns
+            # correct-length noise for the input-rate STFT grid; we resample after.
+            y_len = int(np.ceil(duration * sr)) if (duration and sr) else len(out)
+            y_dummy = np.zeros(max(y_len, 1), dtype=np.float32)
+            noise_signal = extract_aperiodic(
+                y_dummy, sr, f0, voiced, times,
+                stft_raw=stft_r, freqs_stft=freqs_s,
+            )
+            # Resample noise to synth output rate (SAMPLE_RATE) if analysis sr differed.
+            if sr != SAMPLE_RATE and len(noise_signal) > 0:
+                import librosa
+                noise_signal = librosa.resample(
+                    noise_signal.astype(np.float32),
+                    orig_sr=sr,
+                    target_sr=SAMPLE_RATE,
+                ).astype(np.float64)
+            # Align lengths
+            if len(noise_signal) < len(out):
+                noise_signal = np.pad(noise_signal, (0, len(out) - len(noise_signal)))
+            elif len(noise_signal) > len(out):
+                noise_signal = noise_signal[:len(out)]
+            noise_gain_lin = 10.0 ** (noise_mix_db / 20.0)
+            out = out + noise_gain_lin * noise_signal
+            log.info("Aperiodic noise mixed at %.1f dB", noise_mix_db)
+        else:
+            log.info("Aperiodic noise requested but stft_raw missing from prepared dict")
+
     log.info("Final mix: peak=%.4f RMS=%.4f",
              float(np.abs(out).max()), float(np.sqrt(np.mean(out**2))))
     return out
 
 
-def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
+def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=32,
                 noise_floor_db=-50.0, gain_curve="sqrt",
-                spectral_tilt_db=-12.0):
+                spectral_tilt_db=-12.0, noise_mix_db=-12.0):
     """Render the additive synthesis sample-by-sample.
 
     Backwards-compatible wrapper: runs prepare_analysis() then
@@ -583,6 +685,7 @@ def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
         max_voices=max_voices,
         gain_curve=gain_curve,
         spectral_tilt_db=spectral_tilt_db,
+        noise_mix_db=noise_mix_db,
     )
 
 
@@ -621,7 +724,8 @@ def synthesize_cached(y, sr, wav_path: Path = None, **kwargs) -> np.ndarray:
     # synthesize() extracts these, but synthesize_cached bypasses synthesize()
     # when cache hits. prepare_analysis uses f0_min/f0_max; if the cached dict
     # exists we've already used whatever values were passed on the first call.
-    # Just pass the remaining kwargs to synthesize_prepared.
+    # All other kwargs (including noise_mix_db, max_voices, etc.) are passed
+    # through to synthesize_prepared.
     synth_kwargs = {k: v for k, v in kwargs.items()
                     if k not in ('f0_min', 'f0_max')}
     return synthesize_prepared(prepared, **synth_kwargs)
@@ -636,8 +740,8 @@ def main(argv=None):
     parser.add_argument("--f0-min", type=float, default=70.0)
     parser.add_argument("--f0-max", type=float, default=400.0)
     parser.add_argument("--log", default="INFO")
-    parser.add_argument("--max-voices", type=int, default=8,
-                        help="Cap simultaneous active harmonics (default 8)")
+    parser.add_argument("--max-voices", type=int, default=32,
+                        help="Cap simultaneous active harmonics (default 32)")
     parser.add_argument("--noise-floor-db", type=float, default=-50.0,
                         help="Absolute noise floor in dB (default -50)")
     parser.add_argument("--gain-curve", choices=["linear", "sqrt", "square"],
@@ -645,6 +749,8 @@ def main(argv=None):
                         help="dB → 0..1 mapping: linear, sqrt (default), square")
     parser.add_argument("--spectral-tilt-db", type=float, default=-12.0,
                         help="Spectral tilt in dB/oct (default -12, 0=flat)")
+    parser.add_argument("--noise-mix-db", type=float, default=-12.0,
+                        help="Aperiodic noise mix level in dB (default -12; <=-120 disables)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -668,7 +774,8 @@ def main(argv=None):
                            max_voices=args.max_voices,
                            noise_floor_db=args.noise_floor_db,
                            gain_curve=args.gain_curve,
-                           spectral_tilt_db=args.spectral_tilt_db)
+                           spectral_tilt_db=args.spectral_tilt_db,
+                           noise_mix_db=args.noise_mix_db)
 
     # Soft-clip + normalize to peak 0.95
     peak = float(np.abs(out).max())

@@ -55,7 +55,9 @@ import threading
 import time
 import wave
 import io
+import base64
 from http import HTTPStatus
+from urllib.parse import urlparse, parse_qs
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any, Optional
@@ -161,6 +163,35 @@ def pick_loud_channel(y):
     if mag_l > mag_r * 5:
         return y[:, 0]
     return y.mean(axis=1)
+
+
+def generate_spectrogram_png(y, sr, title="", n_fft=2048, hop_length=512, fmax=4000):
+    """Generate a spectrogram PNG as base64 string.
+    Returns base64-encoded PNG bytes.
+    """
+    import numpy as np
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import librosa
+    import librosa.display
+    import io
+    import base64
+    S = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop_length))
+    S_db = librosa.amplitude_to_db(S, ref=np.max(S))
+    fig, ax = plt.subplots(figsize=(12, 4), facecolor='#0e1116')
+    ax.set_facecolor('#000')
+    img = librosa.display.specshow(
+        S_db, sr=sr, hop_length=hop_length, x_axis='time', y_axis='hz',
+        cmap='magma', ax=ax, fmax=fmax
+    )
+    fig.colorbar(img, ax=ax, format='%+2.0f dB', label='dB')
+    ax.set_title(title, color='#c9d1d9', fontsize=12)
+    buf = io.BytesIO()
+    fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0e1116')
+    plt.close(fig)
+    buf.seek(0)
+    return base64.b64encode(buf.read()).decode('ascii')
 
 
 def refresh_samples_cache(voice_dir: Path) -> int:
@@ -856,7 +887,11 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
     # --------------------------------------------------------------- POST routes
 
     def do_POST(self) -> None:  # noqa: N802
-        path = self.path
+        full_path = self.path
+        try:
+            path = urlparse(full_path).path
+        except Exception:
+            path = full_path
         started = time.monotonic()
         try:
             if path == "/render":
@@ -967,6 +1002,16 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             })
             return
 
+        # check self.path for include_spec=true (parse with urllib.parse)
+        include_spec = False
+        try:
+            parsed = urlparse(self.path)
+            qs = parse_qs(parsed.query or "")
+            val = (qs.get("include_spec") or [""])[0].lower()
+            include_spec = val in ("true", "1", "yes")
+        except Exception:
+            include_spec = False
+
         sample_id = body.get("sample_id")
         if not isinstance(sample_id, str) or not SAFE_ID_RE.match(sample_id):
             self._send_json(HTTPStatus.BAD_REQUEST, {
@@ -1038,21 +1083,24 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             spectral_tilt_db = float(body.get("spectral_tilt_db", 0.0))
             thresh_db = float(body.get("thresh_db", -40.0))
             noise_floor_db = float(body.get("noise_floor_db", -60.0))
-            max_voices = int(body.get("max_voices", 8))
+            max_voices = int(body.get("max_voices", 32))
             if not (1 <= max_voices <= 64):
                 raise ValueError("max_voices must be in range 1..64")
             gh_list = body.get("per_harmonic_gains", [1.0] * 6)
-            if not isinstance(gh_list, (list, tuple)) or len(gh_list) != 6:
-                raise ValueError("per_harmonic_gains must be list of 6 floats")
-            per_harmonic_gains = {i + 1: float(gh_list[i]) for i in range(6)}
+            if not isinstance(gh_list, (list, tuple)) or len(gh_list) < 1 or len(gh_list) > 32:
+                raise ValueError("per_harmonic_gains must be list of 1..32 floats")
+            per_harmonic_gains = {i + 1: float(gh_list[i]) for i in range(len(gh_list))}
             ws_list = body.get("wave_shapes", ["sine"] * 6)
-            if not isinstance(ws_list, (list, tuple)) or len(ws_list) != 6:
-                raise ValueError("wave_shapes must be list of 6 strings")
+            if not isinstance(ws_list, (list, tuple)) or len(ws_list) < 1 or len(ws_list) > 32:
+                raise ValueError("wave_shapes must be list of 1..32 strings")
             valid_shapes = {"sine", "square", "saw", "triangle"}
             for s in ws_list:
                 if not isinstance(s, str) or s not in valid_shapes:
                     raise ValueError(f"invalid wave shape: {s}")
             wave_shapes = {i + 1: s for i, s in enumerate(ws_list)}
+            noise_mix_db = float(body.get("noise_mix_db", -12.0))
+            if not (-120.0 <= noise_mix_db <= 0.0):
+                raise ValueError("noise_mix_db must be in range -120..0")
         except Exception as param_exc:
             self._send_json(HTTPStatus.BAD_REQUEST, {
                 "error": "invalid_parameters",
@@ -1072,6 +1120,7 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                 spectral_tilt_db=spectral_tilt_db,
                 per_harmonic_gains=per_harmonic_gains,
                 wave_shapes=wave_shapes,
+                noise_mix_db=noise_mix_db,
             )
         except Exception as synth_exc:
             log.error("synthesize_prepared failed: %s", synth_exc)
@@ -1089,6 +1138,8 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                 out = np.tanh(out)
             elif peak > 0.0:
                 out = out * (0.95 / peak)
+            synth_y = np.asarray(out, dtype=np.float64).copy()
+            duration_s = round(len(synth_y) / float(SAMPLE_RATE), 3) if SAMPLE_RATE > 0 else 0.0
             pcm = (np.clip(out, -1.0, 1.0) * 32767).astype(np.int16)
             pcm_stereo = np.column_stack([pcm, pcm]).reshape(-1)
             buf = io.BytesIO()
@@ -1111,6 +1162,51 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             "POST /render id=%s total=%.1fms analysis%s=%.1fms synth=%.1fms peak=%.3f",
             sample_id, total_ms, "(cached)" if cached else "", anal_ms, synth_ms, peak
         )
+
+        if include_spec:
+            spec_b64 = ""
+            spec_ms = 0.0
+            try:
+                spec_start = time.monotonic()
+                import base64
+                import matplotlib
+                matplotlib.use('Agg')
+                import matplotlib.pyplot as plt
+                import librosa
+                import librosa.display
+                # orig from loaded y (float), synth from float64 out (pre-int16)
+                y_spec = np.asarray(y, dtype=np.float64)
+                fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(12, 8), facecolor='#0e1116')
+                for ax, yy, title, srate in [
+                    (ax1, y_spec, "Original", sr),
+                    (ax2, synth_y, "Synth", SAMPLE_RATE),
+                ]:
+                    ax.set_facecolor('#000')
+                    S = np.abs(librosa.stft(yy, n_fft=2048, hop_length=512))
+                    S_db = librosa.amplitude_to_db(S, ref=np.max(S))
+                    img = librosa.display.specshow(
+                        S_db, sr=srate, hop_length=512, x_axis='time', y_axis='hz',
+                        cmap='magma', ax=ax, fmax=4000
+                    )
+                    fig.colorbar(img, ax=ax, format='%+2.0f dB', label='dB')
+                    ax.set_title(title, color='#c9d1d9', fontsize=12)
+                buf = io.BytesIO()
+                fig.savefig(buf, format='png', dpi=100, bbox_inches='tight', facecolor='#0e1116')
+                plt.close(fig)
+                buf.seek(0)
+                spec_b64 = base64.b64encode(buf.read()).decode('ascii')
+                spec_ms = (time.monotonic() - spec_start) * 1000.0
+                log.info("POST /render spec generation: %.1fms (include_spec=true)", spec_ms)
+            except Exception as spec_exc:
+                log.warning("include_spec spectrogram generation failed: %s", spec_exc)
+            wav_b64 = base64.b64encode(wav_bytes).decode('ascii')
+            self._send_json(HTTPStatus.OK, {
+                "wav_b64": wav_b64,
+                "spec_b64": spec_b64,
+                "peak": round(peak, 4),
+                "duration_s": duration_s,
+            })
+            return
 
         self._send_bytes(HTTPStatus.OK, wav_bytes, "audio/wav",
                          extra_headers={"Cache-Control": "no-store"})
