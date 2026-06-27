@@ -50,6 +50,7 @@ SYNTH_PARAMS = dict(
     max_voices=6,
     noise_floor_db=-40.0,
     gain_curve="sqrt",
+    spectral_tilt_db=-12.0,
 )
 
 # Detection: which channel of a stereo file actually has audio?
@@ -322,7 +323,7 @@ def build_html(samples: list[dict]) -> str:
     )
     # Image blocks (one per sample; shown when selected)
     img_blocks = "\n".join(
-        f'<div class="sample-panel" data-id="{s["id"]}" style="display:none">\n'
+        f'<div class="sample-panel" data-id="{s["id"]}">\n'
         f'  <h2>Side by side</h2>\n'
         f'  <div class="panel"><img src="{s["files"]["side_by_side"]}" alt="side-by-side"></div>\n'
         f'  <div class="audio-row">\n'
@@ -335,6 +336,8 @@ def build_html(samples: list[dict]) -> str:
         f'      <audio controls preload="metadata" src="{s["files"]["synth_wav"]}"></audio>\n'
         f'    </div>\n'
         f'  </div>\n'
+        f'  <button class="play-sync-btn" data-id="{s["id"]}" '
+        f'onclick="playSync(this)">\u25b6 Play both in sync</button>\n'
         f'  <h2>Synthesized + F0 trajectory</h2>\n'
         f'  <div class="panel"><img src="{s["files"]["overlay_synth_f0"]}" alt="synth + F0"></div>\n'
         f'  <h2>Original + F0 trajectory</h2>\n'
@@ -396,6 +399,14 @@ def build_html(samples: list[dict]) -> str:
     padding: 10px 14px; margin-bottom: 16px;
     color: #8b949e; font-size: 12px;
   }}
+  .play-sync-btn {{
+    background: #238636; color: white; border: 1px solid #2ea043;
+    padding: 8px 20px; border-radius: 6px; cursor: pointer;
+    font-size: 14px; font-weight: 600; font-family: inherit;
+    margin-top: 8px; transition: background 0.15s;
+  }}
+  .play-sync-btn:hover {{ background: #2ea043; }}
+  .play-sync-btn.playing {{ background: #da3633; border-color: #f85149; }}
 </style>
 </head>
 <body>
@@ -451,6 +462,40 @@ def build_html(samples: list[dict]) -> str:
     select.value = initial;
   }}
   activate(select.value);
+
+  // Play both tracks in sync
+  let syncPlaying = null;
+  function playSync(btn) {{
+    if (syncPlaying === btn) {{
+      // Stop
+      const panel = btn.closest('.sample-panel');
+      panel.querySelectorAll('audio').forEach(a => {{ a.pause(); a.currentTime = 0; }});
+      btn.textContent = '\u25b6 Play both in sync';
+      btn.classList.remove('playing');
+      syncPlaying = null;
+      return;
+    }}
+    // Stop previous if any
+    if (syncPlaying) {{
+      const prev = syncPlaying.closest('.sample-panel');
+      prev.querySelectorAll('audio').forEach(a => {{ a.pause(); a.currentTime = 0; }});
+      syncPlaying.textContent = '\u25b6 Play both in sync';
+      syncPlaying.classList.remove('playing');
+    }}
+    // Play both
+    const panel = btn.closest('.sample-panel');
+    const audios = panel.querySelectorAll('audio');
+    audios.forEach(a => {{ a.currentTime = 0; a.play(); }});
+    btn.textContent = '\u23f8 Stop both';
+    btn.classList.add('playing');
+    syncPlaying = btn;
+    // When either ends, reset button
+    audios[0].onended = () => {{
+      btn.textContent = '\u25b6 Play both in sync';
+      btn.classList.remove('playing');
+      syncPlaying = null;
+    }};
+  }}
   </script>
 </body>
 </html>

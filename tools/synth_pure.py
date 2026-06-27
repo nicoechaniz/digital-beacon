@@ -14,6 +14,23 @@ algorithm in numpy:
 
 Output: 16-bit stereo WAV at 44.1 kHz.
 
+The pipeline is split into two phases:
+
+  prepare_analysis(y, sr, ...) -> dict
+    Cache F0, voiced mask, per-harmonic gain estimates (already smoothed and
+    bridged), STFT raw magnitudes, and frequency grid. All the expensive
+    librosa work happens here, ONCE.
+
+  synthesize_prepared(prepared, ...) -> np.ndarray
+    Re-render audio from the cached dict. Cheap — no librosa calls.
+    Supports per-harmonic gain overrides (per_harmonic_gains) and per-harmonic
+    waveform overrides (wave_shapes).
+
+  synthesize(y, sr, ...) -> np.ndarray
+    Thin wrapper: prepare_analysis() then synthesize_prepared() with default
+    parameters. Same signature as before — all existing callers continue to
+    work unchanged.
+
 Usage:
     python tools/synth_pure.py path/to/voice.wav --out /tmp/synth.wav
 """
@@ -36,6 +53,12 @@ SAMPLE_RATE = 44100
 
 
 def analyze(y, sr, f0_min, f0_max):
+    """Legacy analyze() — returns (times, f0, voiced, gains_db).
+
+    Kept for callers that import it directly (e.g. build_voice_compare_v3.py).
+    For new code prefer prepare_analysis() which returns the full dict the
+    synthesizer consumes (including STFT + frequency grid).
+    """
     hop = int(0.0464 * sr)
     n_fft = 4096
     f0, voiced, _ = librosa.pyin(
@@ -72,54 +95,78 @@ def analyze(y, sr, f0_min, f0_max):
     return times, f0, voiced, gains_db
 
 
-def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
-                noise_floor_db=-50.0, gain_curve="sqrt"):
-    """Render the additive synthesis sample-by-sample.
+def prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0) -> dict:
+    """Phase 1: run the expensive analysis once, return a cached dict.
 
-    Parameters
-    ----------
-    thresh_db : float
-        Threshold (dB) below H1 (the fundamental) for considering a
-        harmonic active. Default -30. Use a more negative value (-50) to
-        allow more harmonics in, less negative (-20) to be stricter.
-    max_voices : int
-        Cap simultaneous active harmonics.
-    noise_floor_db : float
-        Absolute noise floor — any harmonic with magnitude below this
-        is treated as inactive even if it's above the relative threshold.
-        Prevents spectral leakage from formants being treated as harmonics.
-    gain_curve : {"linear", "sqrt", "square"}
-        How to map dB magnitude → 0..1 gain:
-          - "linear": (g_db + |floor|) / |floor|  (default in earlier version)
-          - "sqrt":   sqrt of linear — compresses range, harmonics feel
-                      more balanced, less dynamic
-          - "square": square of linear — expands range, emphasizes
-                      strongest harmonics, suppresses weak ones
-        Most speech has a steep spectral tilt (-12 dB/oct rolloff above
-        F0). To preserve the perceptual hierarchy, "square" usually
-        matches best — strong harmonics stay strong, weak ones drop out.
+    Returns a dict with keys:
+        times       : (T,) array of frame centers in seconds
+        f0          : (T,) array of (smoothed, bridged) fundamental in Hz
+        voiced      : (T,) bool array — True where the frame is treated as voiced
+        gains_db    : (T, N_HARMONICS) float32 — dB magnitude per harmonic,
+                      recomputed for bridged frames so no silent gaps
+        sr          : int — sample rate the analysis ran at
+        duration    : float — length of input in seconds
+        stft_raw    : (n_freqs, T) float — |STFT| for any later re-analysis
+        freqs_stft  : (n_freqs,) float — frequency axis matching stft_raw
+
+    The dict is self-contained — synthesize_prepared() takes only this dict
+    plus optional rendering parameters. No further librosa calls needed.
     """
-    times, f0, voiced, gains_db = analyze(y, sr, f0_min, f0_max)
+    hop = int(0.0464 * sr)
+    n_fft = 4096
 
-    # Smooth the F0 contour with a median filter (kills octave jumps and
-    # single-frame spikes) then a small Gaussian blur. Without this, every
-    # ~46ms analysis frame can jump 30+ Hz and the harmonic series gets
-    # re-tuned rapidly, producing audible beating/whistling artifacts.
+    # Raw librosa analysis
+    f0, voiced, _ = librosa.pyin(
+        y, fmin=f0_min, fmax=f0_max, sr=sr,
+        hop_length=hop, frame_length=n_fft, fill_na=0.0,
+    )
+    stft_raw = np.abs(librosa.stft(y, n_fft=n_fft, hop_length=hop))
+    freqs_stft = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    times = librosa.frames_to_time(np.arange(len(f0)), sr=sr, hop_length=hop)
+
+    # Per-harmonic gain table (in dB), -120 for unvoiced frames
+    T = len(f0)
+    gains_db = np.full((T, N_HARMONICS), -120.0, dtype=np.float32)
+    for t in range(T):
+        ft = f0[t]
+        if not voiced[t] or ft <= 0:
+            continue
+        for n in range(N_HARMONICS):
+            tgt = ft * (n + 1)
+            if tgt > sr / 2 - 50:
+                break
+            if tgt <= freqs_stft[0] or tgt >= freqs_stft[-1]:
+                continue
+            mag = float(np.interp(tgt, freqs_stft, stft_raw[:, t]))
+            gains_db[t, n] = 20.0 * np.log10(mag + 1e-12)
+
+    log.info("Analysis: %d frames, %.2f s, %.1f%% voiced",
+             T, times[-1] if len(times) else 0, 100.0 * voiced.mean())
+    if voiced.any():
+        log.info("F0 (raw): mean=%.1f min=%.1f max=%.1f",
+                 float(f0[voiced].mean()),
+                 float(f0[voiced].min()),
+                 float(f0[voiced].max()))
+
+    # --- F0 smoothing: median + Gaussian + unvoiced bridging ---
+    # Median filter of 5 frames removes outlier spikes (e.g. 247 Hz when the
+    # true F0 is ~130). Then light 3-frame Gaussian to smooth pitch micro-
+    # jitter without smearing real intonation. Without this, every ~46 ms
+    # analysis frame can jump 30+ Hz and the harmonic series gets re-tuned
+    # rapidly, producing audible beating/whistling artifacts.
     from scipy.signal import medfilt
+    from scipy.ndimage import gaussian_filter1d
     f0_smooth = f0.copy()
     voiced_idx = np.where(voiced)[0]
     if len(voiced_idx) >= 5:
         f0_voiced = f0[voiced]
-        # Median filter of 5 frames removes outlier spikes (e.g. 247 Hz
-        # when the true F0 is ~130). Then light 3-frame Gaussian to
-        # smooth pitch micro-jitter without smearing real intonation.
         f0_med = medfilt(f0_voiced, kernel_size=5)
-        # Gaussian smooth
-        from scipy.ndimage import gaussian_filter1d
         f0_voiced_smooth = gaussian_filter1d(f0_med, sigma=1.5)
         f0_smooth[voiced_idx] = f0_voiced_smooth
+
     # Hold last F0 forward through unvoiced regions (instead of 0) so the
-    # synth continues smoothly through gaps
+    # synth continues smoothly through gaps.
+    bridged = set()  # frames that changed from unvoiced→voiced
     last_f0 = 0.0
     for i in range(len(f0_smooth)):
         if voiced[i] and f0_smooth[i] > 0:
@@ -127,9 +174,193 @@ def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
         elif voiced[i] == False and last_f0 > 0:
             f0_smooth[i] = last_f0  # bridge brief unvoiced gaps
             voiced[i] = True  # mark as voiced for synthesis purposes
-    log.info("F0 smoothing applied (median + Gaussian)")
-    f0 = f0_smooth
-    duration = len(y) / sr
+            bridged.add(i)
+
+    # Recompute harmonic gains for bridged frames — their original gains_db
+    # is all -120 dB (analyze() skips unvoiced frames), which would produce
+    # silence despite the bridged F0.
+    if bridged:
+        log.info("Recomputing harmonic gains for %d bridged frames", len(bridged))
+        for t in bridged:
+            ft = f0_smooth[t]
+            if ft <= 0:
+                continue
+            for n in range(N_HARMONICS):
+                tgt = ft * (n + 1)
+                if tgt > sr / 2 - 50:
+                    break
+                if tgt <= freqs_stft[0] or tgt >= freqs_stft[-1]:
+                    continue
+                mag = float(np.interp(tgt, freqs_stft, stft_raw[:, t]))
+                gains_db[t, n] = 20.0 * np.log10(mag + 1e-12)
+    log.info("F0 smoothing applied (median + Gaussian + bridging)")
+
+    duration = float(len(y) / sr)
+
+    return {
+        "times": times,
+        "f0": f0_smooth,           # post-smoothing, post-bridging
+        "voiced": voiced,          # True after bridging for bridged frames
+        "gains_db": gains_db,
+        "sr": int(sr),
+        "duration": duration,
+        "stft_raw": stft_raw,
+        "freqs_stft": freqs_stft,
+    }
+
+
+def _waveform_value(shape: str, phase: float) -> float:
+    """Evaluate one sample of a waveform at the given phase (radians).
+
+    sine (default): np.sin(phase)
+    square: sign(sin(phase))
+    saw:    2*(phase/(2π) mod 1) - 1
+    triangle: 2*abs(2*(phase/(2π) mod 1) - 1) - 1
+
+    The non-sine shapes are generated via phase accumulation (no lookup table),
+    which keeps phases continuous across samples — the synth already maintains
+    one phase per harmonic from sample to sample.
+    """
+    if shape == "sine" or shape is None:
+        return float(np.sin(phase))
+    if shape == "square":
+        return float(np.sign(np.sin(phase)))
+    if shape == "saw":
+        frac = (phase / (2.0 * np.pi)) % 1.0
+        return float(2.0 * frac - 1.0)
+    if shape == "triangle":
+        frac = (phase / (2.0 * np.pi)) % 1.0
+        return float(2.0 * abs(2.0 * frac - 1.0) - 1.0)
+    raise ValueError(f"unknown wave shape {shape!r}; expected sine/square/saw/triangle")
+
+
+def synthesize_prepared(prepared: dict,
+                        thresh_db: float = -30.0,
+                        noise_floor_db: float = -40.0,
+                        max_voices: int = 6,
+                        gain_curve: str = "sqrt",
+                        spectral_tilt_db: float = -12.0,
+                        per_harmonic_gains: dict | None = None,
+                        wave_shapes: dict | None = None) -> np.ndarray:
+    """Phase 2: render audio from a cached analysis dict.
+
+    Parameters
+    ----------
+    prepared : dict
+        Output of prepare_analysis(). MUST contain at minimum the keys
+        returned by that function; the renderer does NOT call analyze() or
+        prepare_analysis() again.
+    thresh_db : float
+        Threshold (dB) below H1 for considering a harmonic active.
+        Default -30.
+    noise_floor_db : float
+        Absolute noise floor — any harmonic with magnitude below this is
+        treated as inactive even if it's above the relative threshold.
+        Prevents spectral leakage from formants being treated as harmonics.
+        NOTE: the default in this function is -40.0 (matching the existing
+        build_voice_compare_v3.py workflow), while the legacy synthesize()
+        default was -50.0; that mismatch is preserved via synthesize()'s
+        explicit noise_floor_db=-50.0 pass-through.
+    max_voices : int
+        Cap simultaneous active harmonics. Default 6 (was 8 in legacy
+        synthesize(); build_voice_compare_v3 uses 6).
+    gain_curve : {"linear", "sqrt", "square"}
+        How to map dB magnitude → 0..1 gain:
+          - "linear": (g_db + |floor|) / |floor|
+          - "sqrt":   sqrt of linear — compresses range
+          - "square": square of linear — expands range
+    spectral_tilt_db : float
+        Spectral tilt in dB per octave applied to harmonic gains.
+        Default -12.0 matches the natural glottal source roll-off
+        (Titze 2015: -10 to -15 dB/oct for normal voice).
+        0 disables tilt (flat).
+    per_harmonic_gains : dict[int, float], optional
+        Multiplicative gain applied to each harmonic AFTER STFT-derived
+        dB→linear conversion and BEFORE spectral tilt. Keys are 1-based
+        harmonic numbers: {1: 1.0, 2: 0.8, 3: 0.6, ...}.
+        Unspecified harmonics default to 1.0.
+    wave_shapes : dict[int, str], optional
+        Per-harmonic waveform override. Keys are 1-based harmonic numbers,
+        values are one of: "sine", "square", "saw", "triangle".
+        Unspecified harmonics default to "sine".
+
+    Returns
+    -------
+    np.ndarray, shape (total_samples,), dtype float64, range typically
+    within [-1, 1] but NOT normalized — caller's responsibility to peak-
+    normalize / soft-clip before writing 16-bit WAV.
+    """
+    # Sanity check — make sure we got a real prepared dict and not raw audio.
+    if not isinstance(prepared, dict):
+        raise ValueError(
+            f"prepared must be a dict from prepare_analysis(); got {type(prepared).__name__}"
+        )
+    required = {"times", "f0", "voiced", "gains_db", "sr", "duration"}
+    missing = required - set(prepared.keys())
+    if missing:
+        raise ValueError(
+            f"prepared dict missing keys {missing}; "
+            "did you pass raw audio instead of prepare_analysis() output?"
+        )
+
+    times = prepared["times"]
+    f0 = prepared["f0"]
+    voiced = prepared["voiced"]
+    gains_db = prepared["gains_db"]
+    sr = prepared["sr"]
+    duration = prepared["duration"]
+
+    # Pre-compute per-harmonic spectral tilt gains.
+    # Natural voice has -10 to -15 dB/oct roll-off (Titze 2015).
+    # We apply this as a gentle multiplicative gain per harmonic so higher
+    # harmonics decay naturally rather than being cut off abruptly by a LPF.
+    if spectral_tilt_db != 0.0:
+        tilt_gains = np.ones(N_HARMONICS, dtype=np.float64)
+        for n in range(1, N_HARMONICS + 1):
+            octaves = np.log2(max(n, 1))
+            tilt_gains[n - 1] = 10.0 ** (spectral_tilt_db * octaves / 20.0)
+        log.info("Spectral tilt: %.1f dB/oct (H1=%.3f, H2=%.3f, H4=%.3f)",
+                 spectral_tilt_db,
+                 tilt_gains[0], tilt_gains[1], tilt_gains[3])
+    else:
+        tilt_gains = None
+        log.info("Spectral tilt: flat (0 dB/oct)")
+
+    # Per-harmonic gain overrides: 1-based index → multiplier.
+    # Default 1.0 means "no change". Applied AFTER dB→linear and BEFORE tilt.
+    harm_gains = np.ones(N_HARMONICS, dtype=np.float64)
+    if per_harmonic_gains:
+        for k, g in per_harmonic_gains.items():
+            if not (1 <= k <= N_HARMONICS):
+                raise ValueError(
+                    f"per_harmonic_gains key {k} out of range 1..{N_HARMONICS}"
+                )
+            harm_gains[k - 1] = float(g)
+        active_overrides = {k: v for k, v in per_harmonic_gains.items() if v != 1.0}
+        if active_overrides:
+            log.info("per_harmonic_gains overrides: %s", active_overrides)
+
+    # Per-harmonic waveform overrides: 1-based index → shape name.
+    # Default 'sine'. Each call to _waveform_value evaluates one sample at
+    # the harmonic's current phase — phases are kept continuous across
+    # samples, so non-sine shapes stay band-limited (no aliasing from a
+    # piecewise construction at a fixed sample rate).
+    shape_map: dict[int, str] = {}
+    if wave_shapes:
+        valid = {"sine", "square", "saw", "triangle"}
+        for k, s in wave_shapes.items():
+            if not (1 <= k <= N_HARMONICS):
+                raise ValueError(
+                    f"wave_shapes key {k} out of range 1..{N_HARMONICS}"
+                )
+            if s not in valid:
+                raise ValueError(
+                    f"wave_shapes[{k}] = {s!r} not in {valid}"
+                )
+            shape_map[k] = s
+        if any(v != "sine" for v in shape_map.values()):
+            log.info("wave_shapes overrides: %s", shape_map)
+
     total_samples = int(np.ceil(duration * SAMPLE_RATE))
     log.info("Rendering %d samples @ %d Hz (%.2f s), curve=%s, thresh=%ddB, "
              "floor=%ddB, max_voices=%d",
@@ -211,8 +442,16 @@ def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
                     g_norm = g_lin * g_lin
                 else:
                     g_norm = g_lin
+                # Per-harmonic gain override (between dB→linear and tilt).
+                g_norm *= harm_gains[n - 1]
+                # Apply spectral tilt (natural harmonic decay).
+                if tilt_gains is not None:
+                    g_norm *= tilt_gains[n - 1]
                 phases[n] += 2.0 * np.pi * ft * n / SAMPLE_RATE
-                mix += g_norm * envs[n] * np.sin(phases[n])
+                # Per-harmonic waveform selection (default sine).
+                shape = shape_map.get(n, "sine")
+                wave_val = _waveform_value(shape, phases[n])
+                mix += g_norm * envs[n] * wave_val
 
             n_active = int(np.sum(envs > 0.001))
             norm = 1.0 / np.sqrt(max(n_active, 1))
@@ -224,24 +463,35 @@ def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
             log.info("  t=%.2fs voiced=%d f0=%.1f active=%d",
                      t_b, voiced_start, ft_start, active_count)
 
-    # Apply a low-pass filter at max_active_harmonic * max_expected_F0 Hz to
-    # remove intermodulation products and aliasing above the natural range
-    # of our harmonics. Without this, the sum of N sines produces audible
-    # sum/difference components above the highest harmonic (the "whistling"
-    # artifact). The cutoff is conservative: max_harmonic * max_F0 + margin.
-    max_harmonic = max_voices
-    max_f0 = float(np.max(f0_smooth)) if len(f0_smooth) > 0 else 200.0
-    cutoff_hz = min(max_harmonic * max_f0 * 1.1, SAMPLE_RATE / 2 - 1000)
-    log.info("Applying low-pass filter at %.0f Hz to remove intermodulation",
-             cutoff_hz)
-    from scipy.signal import butter, filtfilt
-    nyq = SAMPLE_RATE / 2
-    b, a = butter(4, cutoff_hz / nyq, btype='low')
-    out = filtfilt(b, a, out).astype(np.float64)
-
     log.info("Final mix: peak=%.4f RMS=%.4f",
              float(np.abs(out).max()), float(np.sqrt(np.mean(out**2))))
     return out
+
+
+def synthesize(y, sr, thresh_db, f0_min, f0_max, max_voices=8,
+                noise_floor_db=-50.0, gain_curve="sqrt",
+                spectral_tilt_db=-12.0):
+    """Render the additive synthesis sample-by-sample.
+
+    Backwards-compatible wrapper: runs prepare_analysis() then
+    synthesize_prepared() with default parameters. Every existing caller
+    (build_voice_compare_v3.py, the CLI entry point) continues to work
+    unchanged.
+
+    For re-rendering the SAME audio with different synth parameters
+    (waveform, per-harmonic gain tweaks, etc.), call prepare_analysis() once
+    then synthesize_prepared() multiple times — saves ~95% of the cost on
+    the second+ passes.
+    """
+    prepared = prepare_analysis(y, sr, f0_min=f0_min, f0_max=f0_max)
+    return synthesize_prepared(
+        prepared,
+        thresh_db=thresh_db,
+        noise_floor_db=noise_floor_db,
+        max_voices=max_voices,
+        gain_curve=gain_curve,
+        spectral_tilt_db=spectral_tilt_db,
+    )
 
 
 def main(argv=None):
@@ -260,6 +510,8 @@ def main(argv=None):
     parser.add_argument("--gain-curve", choices=["linear", "sqrt", "square"],
                         default="sqrt",
                         help="dB → 0..1 mapping: linear, sqrt (default), square")
+    parser.add_argument("--spectral-tilt-db", type=float, default=-12.0,
+                        help="Spectral tilt in dB/oct (default -12, 0=flat)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(
@@ -278,7 +530,8 @@ def main(argv=None):
     out = synthesize(y, sr, args.thresh_db, args.f0_min, args.f0_max,
                      max_voices=args.max_voices,
                      noise_floor_db=args.noise_floor_db,
-                     gain_curve=args.gain_curve)
+                     gain_curve=args.gain_curve,
+                     spectral_tilt_db=args.spectral_tilt_db)
 
     # Soft-clip + normalize to peak 0.95
     peak = float(np.abs(out).max())
