@@ -772,6 +772,13 @@ def synthesize_prepared(prepared: dict,
                 noise_signal = np.pad(noise_signal, (0, len(out) - len(noise_signal)))
             elif len(noise_signal) > len(out):
                 noise_signal = noise_signal[:len(out)]
+            # Filter noise through harmonic mask — only keep energy at f₁·N.
+            # This ensures ALL output (harmonic + aperiodic) stays within
+            # the harmonic series grid.
+            noise_signal = harmonic_mask_audio(
+                noise_signal, SAMPLE_RATE, f0, voiced, times,
+                n_harmonics=max_voices, bandwidth_hz=5.0,
+            )
             noise_gain_lin = 10.0 ** (noise_mix_db / 20.0)
             out = out + noise_gain_lin * noise_signal
             log.info("Aperiodic noise mixed at %.1f dB", noise_mix_db)
