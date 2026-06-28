@@ -415,8 +415,8 @@ function makeHarmonics() {
     d.innerHTML = `
       <div class="hname">H${n}</div>
       ${freqText}
-      <input type="range" class="vslider" id="gain${i}" min="0" max="2" step="0.01" value="1">
-      <div class="hval" id="val${i}">1.00</div>
+      <input type="range" class="vslider" id="gain${i}" min="0" max="2" step="0.01" value="${state.per_harmonic_gains[i] || 1}">
+      <div class="hval" id="val${i}">${(state.per_harmonic_gains[i] || 1).toFixed(2)}</div>
       <select id="shape${i}">${
         waveOpts.map(w => `<option value="${w}"${w==='sine'?' selected':''}>${w}</option>`).join('')
       }</select>
@@ -424,8 +424,15 @@ function makeHarmonics() {
     root.appendChild(d);
     const rng = d.querySelector('#gain'+i);
     const outv = d.querySelector('#val'+i);
-    const sync = () => { outv.textContent = parseFloat(rng.value).toFixed(2); };
+    const sync = () => {
+      outv.textContent = parseFloat(rng.value).toFixed(2);
+      state.per_harmonic_gains[i] = parseFloat(rng.value);
+    };
     rng.addEventListener('input', sync);
+    const shapeSel = d.querySelector('#shape'+i);
+    if (shapeSel) shapeSel.addEventListener('change', () => {
+      state.wave_shapes[i] = shapeSel.value;
+    });
     sync();
   }
 }
