@@ -1321,6 +1321,8 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                 duration_s = round(len(synth_y) / float(SAMPLE_RATE), 3)
                 mask_ms = (time.monotonic() - synth_start) * 1000.0
                 log.info("harmonic_mask done in %.1fms (bw=5Hz)", mask_ms)
+                # Apply master gain (same as synth path)
+                out = out * master_gain
                 # WAV encode and return
                 import base64 as _b64
                 peak = float(np.abs(out).max()) if len(out) else 0.0
