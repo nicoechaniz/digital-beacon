@@ -335,7 +335,8 @@ PLACEHOLDER_HTML = """<!doctype html>
   </div>
 
   <div class="card">
-    <h2>Harmonics <label style="font-size:11px;font-weight:normal;margin-left:12px;"><input type="checkbox" id="link-gains"> LINK all</label></h2>
+    <h2>Harmonics <label style="font-size:11px;font-weight:normal;margin-left:12px;"><input type="checkbox" id="link-gains"> LINK all</label>
+    <button id="match-btn" style="margin-left:8px;font-size:11px;padding:2px 8px;">Match Original</button></h2>
     <div id="harmonics" class="hstrip"></div>
   </div>
 
@@ -348,6 +349,9 @@ PLACEHOLDER_HTML = """<!doctype html>
     <button id="play-both" class="play">▶ Play Both</button>
     <button id="render-btn" class="primary">Render (Synth)</button>
     <button id="mask-btn" class="primary" style="background:#6e40c9;border-color:#7c4dff;">Preview (Mask)</button>
+    <label style="display:inline-flex;align-items:center;gap:3px;font-size:11px;color:#8b949e;">
+      BW <input id="harmonic_bw" type="number" min="1" max="100" step="1" value="5" style="width:42px;font-size:11px;"> Hz
+    </label>
     <label style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;">
       <input type="checkbox" id="auto-render"> Auto-render on change
     </label>
@@ -594,7 +598,8 @@ async function doRender() {
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes,
     include_spec: true,
-    mode: state._mask_mode ? 'harmonic_mask' : 'synth'
+    mode: state._mask_mode ? 'harmonic_mask' : 'synth',
+    harmonic_bw: parseInt(document.getElementById('harmonic_bw').value, 10) || 5
   };
   state._mask_mode = false;  // reset after use
     const resp = await fetch('/render?include_spec=true', {
@@ -899,6 +904,23 @@ function init() {
   document.getElementById('save-btn').addEventListener('click', savePreset);
   const loadBtn = document.getElementById('load-btn');
   if (loadBtn) loadBtn.addEventListener('click', loadPreset);
+  const matchBtn = document.getElementById('match-btn');
+  if (matchBtn) matchBtn.addEventListener('click', async () => {
+    if (!state.currentSample) { setStatus('Select a sample first', 'err'); return; }
+    matchBtn.disabled = true; matchBtn.textContent = 'Matching...';
+    try {
+      const r = await fetch('/gains/' + encodeURIComponent(state.currentSample));
+      if (!r.ok) throw new Error(r.status);
+      const j = await r.json();
+      state.f0_mean = j.f0_mean || state.f0_mean;
+      state.per_harmonic_gains = j.gains.slice(0, state.max_voices);
+      while (state.per_harmonic_gains.length < state.max_voices) state.per_harmonic_gains.push(1.0);
+      state.wave_shapes = Array(state.max_voices).fill('sine');
+      makeHarmonics(); syncStateToDOM(); updateReadouts();
+      setStatus('Matched original (F0=' + (j.f0_mean||0).toFixed(0) + ' Hz)', 'ok');
+    } catch(e) { setStatus('Match failed: ' + e, 'err'); }
+    matchBtn.disabled = false; matchBtn.textContent = 'Match Original';
+  });
   document.getElementById('download-btn').addEventListener('click', doDownload);
   loadSamples();
 }
@@ -1003,6 +1025,44 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             elif path.startswith("/viz/"):
                 rel = path[len("/viz/"):].split("?", 1)[0]
                 self._handle_get_viz(rel)
+            elif path.startswith("/gains/"):
+                sample_id = path.split("/gains/", 1)[1].strip()
+                if not SAFE_ID_RE.match(sample_id):
+                    self._send_json(HTTPStatus.BAD_REQUEST, {"error": "invalid_id"})
+                else:
+                    wav_path = self.voice_dir / f"{sample_id}.wav"
+                    if not wav_path.is_file():
+                        self._send_json(HTTPStatus.NOT_FOUND, {"error": "not_found"})
+                    else:
+                        try:
+                            import numpy as np, soundfile as sf, sys as _s
+                            _s.path.insert(0, str(Path(__file__).resolve().parent.parent))
+                            from tools.synth_pure import prepare_analysis
+                            y, sr = sf.read(str(wav_path))
+                            if y.ndim > 1:
+                                mag_l = float(np.abs(y[:, 0]).max())
+                                mag_r = float(np.abs(y[:, 1]).max())
+                                y = y[:, 1] if mag_r > mag_l * 5 else (y[:, 0] if mag_l > mag_r * 5 else y.mean(axis=1))
+                            y = y.astype(np.float32)
+                            prep = prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0)
+                            gains_db = prep["gains_db"]
+                            voiced = prep["voiced"]
+                            f0v = prep["f0"][voiced]
+                            avg_db = np.mean(gains_db[voiced], axis=0)
+                            mn, mx = float(avg_db.min()), float(avg_db.max())
+                            if mx - mn > 1:
+                                gains = ((avg_db - mn) / (mx - mn) * 1.9 + 0.1).tolist()
+                            else:
+                                gains = [1.0] * len(avg_db)
+                            f0_mean = round(float(f0v.mean()), 1) if len(f0v) else 0.0
+                            self._send_json(HTTPStatus.OK, {
+                                "sample_id": sample_id, "f0_mean": f0_mean,
+                                "gains": gains, "n_harmonics": len(gains),
+                            })
+                        except Exception as exc:
+                            log.error("/gains failed: %s", exc)
+                            self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR,
+                                {"error": "gains_failed", "detail": str(exc)})
             elif path == "/health":
                 self._send_json(HTTPStatus.OK, {
                     "ok": True,
@@ -1254,8 +1314,8 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                 f0_mask = prep_mask["f0"]
                 voiced_mask = prep_mask["voiced"]
                 times_mask = prep_mask["times"]
-                out = harmonic_mask_audio(y, sr, f0_mask, voiced_mask, times_mask,
-                                          n_harmonics=max_voices, bandwidth_hz=5.0)
+                bw = int(body.get("harmonic_bw", 5)); out = harmonic_mask_audio(y, sr, f0_mask, voiced_mask, times_mask,
+                                          n_harmonics=max_voices, bandwidth_hz=bw)
                 synth_y = np.asarray(out, dtype=np.float64).copy()
                 duration_s = round(len(synth_y) / float(SAMPLE_RATE), 3)
                 mask_ms = (time.monotonic() - synth_start) * 1000.0
