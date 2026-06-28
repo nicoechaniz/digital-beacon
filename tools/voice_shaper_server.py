@@ -346,7 +346,8 @@ PLACEHOLDER_HTML = """<!doctype html>
     <button id="play-orig" class="play">▶ Play Original</button>
     <button id="play-synth" class="play">▶ Play Synth</button>
     <button id="play-both" class="play">▶ Play Both</button>
-    <button id="render-btn" class="primary">Render</button>
+    <button id="render-btn" class="primary">Render (Synth)</button>
+    <button id="mask-btn" class="primary" style="background:#6e40c9;border-color:#7c4dff;">Preview (Mask)</button>
     <label style="display:inline-flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;">
       <input type="checkbox" id="auto-render"> Auto-render on change
     </label>
@@ -592,9 +593,10 @@ async function doRender() {
     noise_floor_db: state.noise_floor_db,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes,
-    include_spec: true
+    include_spec: true,
+    mode: state._mask_mode ? 'harmonic_mask' : 'synth'
   };
-  try {
+  state._mask_mode = false;  // reset after use
     const resp = await fetch('/render?include_spec=true', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
@@ -889,6 +891,10 @@ function init() {
   bindControls();
   initPlayback();
   document.getElementById('render-btn').addEventListener('click', onRender);
+  document.getElementById('mask-btn').addEventListener('click', () => {
+    state._mask_mode = true;
+    onRender();
+  });
   document.getElementById('reset-btn').addEventListener('click', resetToDefaults);
   document.getElementById('save-btn').addEventListener('click', savePreset);
   const loadBtn = document.getElementById('load-btn');
