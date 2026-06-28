@@ -1321,16 +1321,11 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
                 duration_s = round(len(synth_y) / float(SAMPLE_RATE), 3)
                 mask_ms = (time.monotonic() - synth_start) * 1000.0
                 log.info("harmonic_mask done in %.1fms (bw=5Hz)", mask_ms)
-                # Peak normalize first, THEN apply master gain
-                # (reverse of synth path — mask output is already full-scale)
-                import base64 as _b64
-                peak = float(np.abs(out).max()) if len(out) else 0.0
-                if peak > 0.95:
-                    out = np.tanh(out)
-                elif peak > 0.0:
-                    out = out * (0.95 / peak)
+                # harmonic_mask_audio now returns peak=1.0 normalized.
+                # Just apply master_gain and encode.
                 out = out * master_gain
                 # WAV encode
+                import base64 as _b64
                 pcm = (np.clip(out, -1.0, 1.0) * 32767).astype(np.int16)
                 pcm_stereo = np.column_stack([pcm, pcm]).ravel()
                 import io as _io2, wave as _wave2

@@ -454,6 +454,13 @@ def harmonic_mask_audio(y, sr, f0, voiced, times,
     else:
         y_out = y_out[:len(y)]
 
+    # Normalize to peak 1.0 — ISTFT with sparse mask produces
+    # massively amplified output (scipy's overlap-add normalization
+    # assumes full-spectrum input).
+    pk = float(np.abs(y_out).max())
+    if pk > 0:
+        y_out = y_out / pk
+
     kept = float(mask.sum() / mask.size * 100)
     log.info("harmonic_mask: kept %.1f%% of STFT bins (bw=%.1f Hz, %d harmonics)",
              kept, bandwidth_hz, n_harmonics)
