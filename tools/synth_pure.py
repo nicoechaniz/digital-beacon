@@ -393,6 +393,73 @@ def _waveform_value(shape: str, phase: float) -> float:
     raise ValueError(f"unknown wave shape {shape!r}; expected sine/square/saw/triangle")
 
 
+def harmonic_mask_audio(y, sr, f0, voiced, times,
+                        n_harmonics=32, bandwidth_hz=5.0,
+                        n_fft=4096, hop=None):
+    """Keep only energy at harmonic frequencies f₁·N from the original audio.
+
+    Computes STFT, masks all bins except those within ±bandwidth_hz of any
+    harmonic frequency f₁·N, then inverse STFT back to time domain.
+
+    This produces the theoretical upper bound of what the Shaper can achieve:
+    100% of the energy comes from harmonic frequencies. No broadband noise.
+    Fricatives and aspiration are preserved ONLY at the harmonic series.
+
+    Parameters
+    ----------
+    bandwidth_hz : float
+        Half-width of the bandpass window around each harmonic. 5 Hz means
+        each harmonic keeps energy at f₁·N ± 5 Hz. Wider = more of the
+        original preserved, narrower = purer harmonics.
+    """
+    if hop is None:
+        hop = n_fft // 4  # 1024 for n_fft=4096
+    from scipy.signal import istft
+    import librosa
+    log = logging.getLogger("synth_pure.harmonic_mask")
+    S = librosa.stft(y, n_fft=n_fft, hop_length=hop)
+    freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+    T = S.shape[1]
+
+    # Build the mask: keep bins within bandwidth_hz of any f₁·N
+    mask = np.zeros_like(S, dtype=bool)
+    freq_res = sr / n_fft  # Hz per bin
+    bin_width = max(1, int(np.ceil(bandwidth_hz / freq_res)))
+
+    # For each frame, find harmonic frequencies and mask nearby bins
+    for t in range(T):
+        t_sec = t * hop / sr
+        # Find closest analysis frame
+        idx = int(np.searchsorted(times, t_sec))
+        idx = min(max(idx, 0), len(times) - 1)
+        ft = float(f0[idx])
+        if not voiced[idx] or ft <= 0:
+            continue
+        for n in range(1, n_harmonics + 1):
+            target_hz = ft * n
+            if target_hz > sr / 2 - 50:
+                break
+            center_bin = int(np.searchsorted(freqs, target_hz))
+            lo = max(0, center_bin - bin_width)
+            hi = min(len(freqs) - 1, center_bin + bin_width)
+            mask[lo:hi + 1, t] = True
+
+    # Apply mask and reconstruct
+    S_masked = S * mask
+    _, y_out = istft(S_masked, fs=sr, nperseg=n_fft, noverlap=n_fft - hop,
+                     nfft=n_fft, boundary=True)
+    # Trim/pad to match original length
+    if len(y_out) < len(y):
+        y_out = np.pad(y_out, (0, len(y) - len(y_out)))
+    else:
+        y_out = y_out[:len(y)]
+
+    kept = float(mask.sum() / mask.size * 100)
+    log.info("harmonic_mask: kept %.1f%% of STFT bins (bw=%.1f Hz, %d harmonics)",
+             kept, bandwidth_hz, n_harmonics)
+    return np.asarray(y_out, dtype=np.float64)
+
+
 def synthesize_prepared(prepared: dict,
                         thresh_db: float = -30.0,
                         noise_floor_db: float = -40.0,

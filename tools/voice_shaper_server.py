@@ -335,7 +335,7 @@ PLACEHOLDER_HTML = """<!doctype html>
   </div>
 
   <div class="card">
-    <h2>Harmonics</h2>
+    <h2>Harmonics <label style="font-size:11px;font-weight:normal;margin-left:12px;"><input type="checkbox" id="link-gains"> LINK all</label></h2>
     <div id="harmonics" class="hstrip"></div>
   </div>
 
@@ -425,8 +425,20 @@ function makeHarmonics() {
     const rng = d.querySelector('#gain'+i);
     const outv = d.querySelector('#val'+i);
     const sync = () => {
-      outv.textContent = parseFloat(rng.value).toFixed(2);
-      state.per_harmonic_gains[i] = parseFloat(rng.value);
+      const v = parseFloat(rng.value);
+      const link = document.getElementById('link-gains');
+      if (link && link.checked) {
+        for (let j=0; j<state.max_voices; j++) {
+          state.per_harmonic_gains[j] = v;
+          const g2 = document.getElementById('gain'+j);
+          const v2 = document.getElementById('val'+j);
+          if (g2) g2.value = v;
+          if (v2) v2.textContent = v.toFixed(2);
+        }
+      } else {
+        outv.textContent = v.toFixed(2);
+        state.per_harmonic_gains[i] = v;
+      }
     };
     rng.addEventListener('input', sync);
     const shapeSel = d.querySelector('#shape'+i);
@@ -1129,6 +1141,7 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             include_spec = False
 
         sample_id = body.get("sample_id")
+        mode = body.get("mode", "synth")  # "synth" or "harmonic_mask"
         if not isinstance(sample_id, str) or not SAFE_ID_RE.match(sample_id):
             self._send_json(HTTPStatus.BAD_REQUEST, {
                 "error": "missing_sample_id",
@@ -1152,7 +1165,7 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             import numpy as np
             import soundfile as sf
             sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-            from tools.synth_pure import prepare_analysis, synthesize_prepared, SAMPLE_RATE
+            from tools.synth_pure import prepare_analysis, synthesize_prepared, SAMPLE_RATE, harmonic_mask_audio
             from tools.voice_cache import VoiceCache
         except Exception as imp_exc:
             log.warning("synth_pure or voice_cache imports failed: %s", imp_exc)
@@ -1227,8 +1240,51 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             })
             return
 
-        # RUN SYNTH
         synth_start = time.monotonic()
+        # Mode: harmonic_mask — preview theoretical max by bandpassing original
+        if mode == "harmonic_mask":
+            try:
+                prep_mask = prepare_analysis(y, sr, f0_min=70.0, f0_max=400.0)
+                f0_mask = prep_mask["f0"]
+                voiced_mask = prep_mask["voiced"]
+                times_mask = prep_mask["times"]
+                out = harmonic_mask_audio(y, sr, f0_mask, voiced_mask, times_mask,
+                                          n_harmonics=max_voices, bandwidth_hz=5.0)
+                synth_y = np.asarray(out, dtype=np.float64).copy()
+                duration_s = round(len(synth_y) / float(SAMPLE_RATE), 3)
+                mask_ms = (time.monotonic() - synth_start) * 1000.0
+                log.info("harmonic_mask done in %.1fms (bw=5Hz)", mask_ms)
+                # WAV encode and return
+                import base64 as _b64
+                peak = float(np.abs(out).max()) if len(out) else 0.0
+                if peak > 0.95:
+                    out = np.tanh(out)
+                elif peak > 0.0:
+                    out = out * (0.95 / peak)
+                pcm = (np.clip(out, -1.0, 1.0) * 32767).astype(np.int16)
+                pcm_stereo = np.column_stack([pcm, pcm]).ravel()
+                import io as _io2, wave as _wave2
+                buf = _io2.BytesIO()
+                with _wave2.open(buf, 'wb') as w:
+                    w.setnchannels(2); w.setsampwidth(2); w.setframerate(SAMPLE_RATE)
+                    w.writeframes(pcm_stereo.tobytes())
+                wav_bytes = buf.getvalue()
+                self._send_json(HTTPStatus.OK, {
+                    "wav_b64": _b64.b64encode(wav_bytes).decode('ascii'),
+                    "spec_b64": "",
+                    "sample_rate": SAMPLE_RATE,
+                    "duration_s": duration_s,
+                })
+                return
+            except Exception as mask_exc:
+                log.error("harmonic_mask failed: %s", mask_exc)
+                self._send_json(HTTPStatus.INTERNAL_SERVER_ERROR, {
+                    "error": "harmonic_mask_failed",
+                    "detail": str(mask_exc),
+                })
+                return
+
+        # RUN SYNTH
         try:
             out = synthesize_prepared(
                 prepared,
