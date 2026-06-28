@@ -301,7 +301,7 @@ PLACEHOLDER_HTML = """<!doctype html>
         <select id="gain_curve">
           <option value="linear" selected>linear</option>
           <option value="sqrt">sqrt</option>
-          <option value="log">log</option>
+          <option value="square">square</option>
         </select>
       </div>
       <div class="ctrl">
@@ -311,6 +311,10 @@ PLACEHOLDER_HTML = """<!doctype html>
       <div class="ctrl">
         <label>Tilt (dB/oct)</label>
         <input id="tilt_db" type="number" min="-48" max="0" step="0.5" value="-12">
+      </div>
+      <div class="ctrl">
+        <label>Noise Floor (dB)</label>
+        <input id="noise_floor_db" type="number" min="-96" max="0" step="1" value="-40">
       </div>
       <div class="ctrl">
         <label>Max Voices</label>
@@ -325,6 +329,7 @@ PLACEHOLDER_HTML = """<!doctype html>
         <label>Noise Mix <span id="val-noise-mix">-12.0 dB</span></label>
         <input id="noise_mix_db" type="range" min="-120" max="0" step="1" value="-12"
                style="width:130px;">
+        <label style="font-size:11px;margin-left:4px;"><input type="checkbox" id="noise_bypass"> mute</label>
       </div>
     </div>
   </div>
@@ -370,6 +375,7 @@ const DEFAULT_STATE = {
   tilt_db: -12,
   max_voices: 32,
   noise_mix_db: -12,
+  noise_floor_db: -40,
   master_gain: 0.7,
   per_harmonic_gains: Array(32).fill(1.0),
   wave_shapes: Array(32).fill('sine')
@@ -422,7 +428,9 @@ function syncDOMToState() {
   const mg = document.getElementById('master_gain');
   state.master_gain = mg ? parseFloat(mg.value) : 0.7;
   const nm = document.getElementById('noise_mix_db');
-  state.noise_mix_db = nm ? parseFloat(nm.value) : -12.0;
+  const nb = document.getElementById('noise_bypass');
+  state.noise_mix_db = (nb && nb.checked) ? -120.0 : (nm ? parseFloat(nm.value) : -12.0);
+  state.noise_floor_db = parseFloat(document.getElementById('noise_floor_db').value) || -40;
   state.per_harmonic_gains = [];
   state.wave_shapes = [];
   const nv = state.max_voices;
@@ -457,6 +465,10 @@ function syncStateToDOM() {
   const nmv = document.getElementById('val-noise-mix');
   if (nm) nm.value = state.noise_mix_db != null ? state.noise_mix_db : -12.0;
   if (nmv) nmv.textContent = parseFloat(nm ? nm.value : (state.noise_mix_db || -12)).toFixed(1) + ' dB';
+  const nb = document.getElementById('noise_bypass');
+  if (nb) nb.checked = (state.noise_mix_db <= -120);
+  const nf = document.getElementById('noise_floor_db');
+  if (nf) nf.value = state.noise_floor_db != null ? state.noise_floor_db : -40;
   const nv = state.max_voices;
   for (let i=0; i<nv; i++) {
     const g = document.getElementById('gain'+i);
@@ -530,6 +542,7 @@ async function doRender() {
     max_voices: state.max_voices,
     master_gain: state.master_gain,
     noise_mix_db: state.noise_mix_db,
+    noise_floor_db: state.noise_floor_db,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes
   };
@@ -624,12 +637,12 @@ function loadOriginalForCurrent() {
 }
 
 function bindControls() {
-  const changeIds = ['sample', 'gain_curve'];
+  const changeIds = ['sample', 'gain_curve', 'noise_bypass'];
   changeIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('change', onParamChange);
   });
-  const inputIds = ['thresh_db', 'tilt_db', 'max_voices', 'master_gain'];
+  const inputIds = ['thresh_db', 'tilt_db', 'max_voices', 'master_gain', 'noise_mix_db', 'noise_floor_db'];
   inputIds.forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', onParamChange);
@@ -742,6 +755,7 @@ async function doDownload() {
     max_voices: state.max_voices,
     master_gain: state.master_gain,
     noise_mix_db: state.noise_mix_db,
+    noise_floor_db: state.noise_floor_db,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes
   };
