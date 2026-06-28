@@ -602,6 +602,7 @@ async function doRender() {
     harmonic_bw: parseInt(document.getElementById('harmonic_bw').value, 10) || 5
   };
   state._mask_mode = false;  // reset after use
+  try {
     const resp = await fetch('/render?include_spec=true', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
