@@ -108,7 +108,6 @@ def discover_samples(voice_dir: Path) -> list[dict[str, Any]]:
             continue
 
         duration_s = _probe_duration_seconds(wav_path)
-
         out.append(
             {
                 "id": stem,
@@ -242,13 +241,14 @@ PLACEHOLDER_HTML = """<!doctype html>
   input[type=range] { accent-color: #58a6ff; }
   .globals-row { display: flex; gap: 12px; flex-wrap: wrap; }
   .globals-row .ctrl { min-width: 110px; }
-  .hstrip { display: flex; gap: 12px; }
+  .hstrip { display: flex; flex-wrap: wrap; gap: 8px; }
   .hcol {
     display: flex; flex-direction: column; align-items: center;
     background: #0d1117; border: 1px solid #30363d; border-radius: 6px;
-    padding: 6px 4px; min-width: 46px;
+    padding: 6px 4px; min-width: 50px;
   }
-  .hcol .hname { font-size: 11px; color: #8b949e; margin-bottom: 3px; }
+  .hcol .hname { font-size: 10px; color: #8b949e; margin-bottom: 1px; text-align:center; }
+  .hcol .hfreq { font-size: 9px; color: #555; margin-bottom: 3px; }
   .hcol .hval { font-family: monospace; font-size: 12px; color: #58a6ff; margin: 2px 0 3px; }
   .hcol select { width: 100%; font-size: 10px; padding: 1px 2px; }
   .vslider {
@@ -365,11 +365,19 @@ PLACEHOLDER_HTML = """<!doctype html>
   </div>
 
   <div id="status" class="status"></div>
+  <div id="spec-container" style="display:none;margin-top:12px;">
+    <h2>Spectrograms</h2>
+    <div class="panel" style="display:flex;flex-direction:column;gap:8px;">
+      <img id="spec-orig" style="width:100%;border-radius:4px;" alt="Original spectrogram">
+      <img id="spec-synth" style="width:100%;border-radius:4px;" alt="Synth spectrogram">
+    </div>
+  </div>
 </div>
 
 <script>
 const DEFAULT_STATE = {
   currentSample: '',
+  f0_mean: 0,
   gain_curve: 'linear',
   thresh_db: -30,
   tilt_db: -12,
@@ -385,6 +393,7 @@ let lastBlobUrl = null;
 let debounceTimer = null;
 let originalAudioEl = null;
 let synthAudioEl = null;
+let samplesList = [];
 
 function setStatus(msg, type) {
   const el = document.getElementById('status');
@@ -399,10 +408,13 @@ function makeHarmonics() {
   const nv = state.max_voices;
   for (let i=0; i<nv; i++) {
     const n = i+1;
+    const freq = state.f0_mean ? Math.round(state.f0_mean * n) : 0;
+    const freqText = freq ? '<div class="hfreq">' + freq + ' Hz</div>' : '<div class="hfreq">—</div>';
     const d = document.createElement('div');
     d.className = 'hcol';
     d.innerHTML = `
       <div class="hname">H${n}</div>
+      ${freqText}
       <input type="range" class="vslider" id="gain${i}" min="0" max="2" step="0.01" value="1">
       <div class="hval" id="val${i}">1.00</div>
       <select id="shape${i}">${
@@ -421,6 +433,8 @@ function makeHarmonics() {
 function syncDOMToState() {
   const sel = document.getElementById('sample');
   state.currentSample = sel ? (sel.value || '') : '';
+  const si = samplesList.find(s => s.id === state.currentSample);
+  state.f0_mean = (si && si.f0_mean) ? si.f0_mean : 0;
   state.gain_curve = document.getElementById('gain_curve').value;
   state.thresh_db = parseFloat(document.getElementById('thresh_db').value) || -30;
   state.tilt_db = parseFloat(document.getElementById('tilt_db').value) || -12;
@@ -522,6 +536,20 @@ function onRender() {
   doRender();
 }
 
+function synthPlay(url) {
+  const synth = document.getElementById('synth');
+  const dl = document.getElementById('download-link');
+  if (synth) {
+    synth.src = url;
+    synth.play().catch(() => {});
+  }
+  if (dl) {
+    dl.href = url;
+    dl.download = (state.currentSample || 'render') + '_render.wav';
+    dl.style.display = 'inline';
+  }
+}
+
 async function doRender() {
   const btn = document.getElementById('render-btn');
   const sample_id = state.currentSample;
@@ -544,32 +572,45 @@ async function doRender() {
     noise_mix_db: state.noise_mix_db,
     noise_floor_db: state.noise_floor_db,
     per_harmonic_gains: state.per_harmonic_gains,
-    wave_shapes: state.wave_shapes
+    wave_shapes: state.wave_shapes,
+    include_spec: true
   };
   try {
-    const resp = await fetch('/render', {
+    const resp = await fetch('/render?include_spec=true', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
       body: JSON.stringify(payload)
     });
     if (resp.ok) {
-      const blob = await resp.blob();
-      if (lastBlobUrl) { try { URL.revokeObjectURL(lastBlobUrl); } catch(_){} }
-      lastBlobUrl = URL.createObjectURL(blob);
-      const ra = document.getElementById('render-audio');
-      if (ra) ra.src = lastBlobUrl;
-      const synth = document.getElementById('synth');
-      if (synth) {
-        synth.src = lastBlobUrl;
-        synth.play().catch(() => {});
+      const ct = resp.headers.get('content-type') || '';
+      if (ct.includes('application/json')) {
+        // include_spec response: {wav_b64, spec_b64, sample_rate, duration_s}
+        const j = await resp.json();
+        const wavBytes = Uint8Array.from(atob(j.wav_b64), c => c.charCodeAt(0));
+        const blob = new Blob([wavBytes], {type: 'audio/wav'});
+        if (lastBlobUrl) { try { URL.revokeObjectURL(lastBlobUrl); } catch(_){} }
+        lastBlobUrl = URL.createObjectURL(blob);
+        synthPlay(lastBlobUrl);
+        // Show spectrograms
+        if (j.spec_b64) {
+          const sc = document.getElementById('spec-container');
+          const so = document.getElementById('spec-orig');
+          const ss = document.getElementById('spec-synth');
+          if (sc && ss) {
+            sc.style.display = 'block';
+            ss.src = 'data:image/png;base64,' + j.spec_b64;
+            so.style.display = 'none'; // single spec image has both
+          }
+        }
+        setStatus('Render complete (' + (j.duration_s||0).toFixed(1) + 's). Ready.', 'ok');
+      } else {
+        // legacy blob response
+        const blob = await resp.blob();
+        if (lastBlobUrl) { try { URL.revokeObjectURL(lastBlobUrl); } catch(_){} }
+        lastBlobUrl = URL.createObjectURL(blob);
+        synthPlay(lastBlobUrl);
+        setStatus('Render complete (200). Ready to play.', 'ok');
       }
-      const dl = document.getElementById('download-link');
-      if (dl) {
-        dl.href = lastBlobUrl;
-        dl.download = (sample_id || 'render') + '_render.wav';
-        dl.style.display = 'inline';
-      }
-      setStatus('Render complete (200). Ready to play.', 'ok');
     } else {
       let errMsg = 'HTTP ' + resp.status;
       try {
@@ -601,6 +642,7 @@ async function loadSamples() {
     if (!r.ok) throw new Error(r.status);
     const j = await r.json();
     const list = j.samples || [];
+    samplesList = list;
     sel.innerHTML = '';
     if (!list.length) {
       sel.innerHTML = '<option value="">(no samples)</option>';
@@ -619,6 +661,9 @@ async function loadSamples() {
       sel.selectedIndex = 0;
       state.currentSample = sel.value;
     }
+    // Track F0 for frequency display
+    const si = samplesList.find(s => s.id === state.currentSample);
+    state.f0_mean = (si && si.f0_mean) ? si.f0_mean : 0;
     updateMeta();
     loadOriginalForCurrent();
     setStatus('Loaded ' + list.length + ' samples');
