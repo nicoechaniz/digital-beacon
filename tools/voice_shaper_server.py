@@ -314,11 +314,16 @@ PLACEHOLDER_HTML = """<!doctype html>
       </div>
       <div class="ctrl">
         <label>Max Voices</label>
-        <input id="max_voices" type="number" min="1" max="16" step="1" value="6">
+        <input id="max_voices" type="number" min="1" max="32" step="1" value="32">
       </div>
       <div class="ctrl">
         <label>Master Gain <span id="val-master-gain">0.70</span></label>
         <input id="master_gain" type="range" min="0" max="2" step="0.05" value="0.7"
+               style="width:130px;">
+      </div>
+      <div class="ctrl">
+        <label>Noise Mix <span id="val-noise-mix">-12.0 dB</span></label>
+        <input id="noise_mix_db" type="range" min="-120" max="0" step="1" value="-12"
                style="width:130px;">
       </div>
     </div>
@@ -363,10 +368,11 @@ const DEFAULT_STATE = {
   gain_curve: 'linear',
   thresh_db: -30,
   tilt_db: -12,
-  max_voices: 6,
+  max_voices: 32,
+  noise_mix_db: -12,
   master_gain: 0.7,
-  per_harmonic_gains: [1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
-  wave_shapes: ['sine', 'sine', 'sine', 'sine', 'sine', 'sine']
+  per_harmonic_gains: Array(32).fill(1.0),
+  wave_shapes: Array(32).fill('sine')
 };
 let state = JSON.parse(JSON.stringify(DEFAULT_STATE));
 let lastBlobUrl = null;
@@ -384,7 +390,8 @@ function makeHarmonics() {
   const root = document.getElementById('harmonics');
   root.innerHTML = '';
   const waveOpts = ['sine','square','saw','triangle'];
-  for (let i=0; i<6; i++) {
+  const nv = state.max_voices;
+  for (let i=0; i<nv; i++) {
     const n = i+1;
     const d = document.createElement('div');
     d.className = 'hcol';
@@ -414,9 +421,12 @@ function syncDOMToState() {
   state.max_voices = parseInt(document.getElementById('max_voices').value, 10) || 6;
   const mg = document.getElementById('master_gain');
   state.master_gain = mg ? parseFloat(mg.value) : 0.7;
+  const nm = document.getElementById('noise_mix_db');
+  state.noise_mix_db = nm ? parseFloat(nm.value) : -12.0;
   state.per_harmonic_gains = [];
   state.wave_shapes = [];
-  for (let i=0; i<6; i++) {
+  const nv = state.max_voices;
+  for (let i=0; i<nv; i++) {
     const g = document.getElementById('gain'+i);
     const s = document.getElementById('shape'+i);
     state.per_harmonic_gains.push( g ? parseFloat(g.value) : 1.0 );
@@ -443,7 +453,12 @@ function syncStateToDOM() {
   if (mg) mg.value = state.master_gain != null ? state.master_gain : 0.7;
   const mgv = document.getElementById('val-master-gain');
   if (mgv) mgv.textContent = parseFloat(mg ? mg.value : (state.master_gain || 0.7)).toFixed(2);
-  for (let i=0; i<6; i++) {
+  const nm = document.getElementById('noise_mix_db');
+  const nmv = document.getElementById('val-noise-mix');
+  if (nm) nm.value = state.noise_mix_db != null ? state.noise_mix_db : -12.0;
+  if (nmv) nmv.textContent = parseFloat(nm ? nm.value : (state.noise_mix_db || -12)).toFixed(1) + ' dB';
+  const nv = state.max_voices;
+  for (let i=0; i<nv; i++) {
     const g = document.getElementById('gain'+i);
     const s = document.getElementById('shape'+i);
     const v = document.getElementById('val'+i);
@@ -455,7 +470,8 @@ function syncStateToDOM() {
 }
 
 function updateReadouts() {
-  for (let i=0; i<6; i++) {
+  const nv = state.max_voices;
+  for (let i=0; i<nv; i++) {
     const g = document.getElementById('gain'+i);
     const v = document.getElementById('val'+i);
     if (g && v) v.textContent = parseFloat(g.value).toFixed(2);
@@ -463,6 +479,9 @@ function updateReadouts() {
   const mg = document.getElementById('master_gain');
   const mgv = document.getElementById('val-master-gain');
   if (mg && mgv) mgv.textContent = parseFloat(mg.value).toFixed(2);
+  const nm = document.getElementById('noise_mix_db');
+  const nmv = document.getElementById('val-noise-mix');
+  if (nm && nmv) nmv.textContent = parseFloat(nm.value).toFixed(1) + ' dB';
 }
 
 function onParamChange() {
@@ -510,6 +529,7 @@ async function doRender() {
     spectral_tilt_db: state.tilt_db,
     max_voices: state.max_voices,
     master_gain: state.master_gain,
+    noise_mix_db: state.noise_mix_db,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes
   };
@@ -614,12 +634,15 @@ function bindControls() {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', onParamChange);
   });
-  for (let i=0; i<6; i++) {
-    const g = document.getElementById('gain'+i);
-    const s = document.getElementById('shape'+i);
-    if (g) g.addEventListener('input', onParamChange);
-    if (s) s.addEventListener('change', onParamChange);
-  }
+  // Harmonic strip listeners are wired inside makeHarmonics();
+  // the max_voices onchange handler rebuilds strips + listeners.
+  const mv2 = document.getElementById('max_voices');
+  if (mv2) mv2.addEventListener('change', () => {
+    syncDOMToState();
+    makeHarmonics();
+    syncStateToDOM();
+    updateReadouts();
+  });
 }
 
 const PRESET_PREFIX = 'voice_shaper_preset:';
@@ -718,6 +741,7 @@ async function doDownload() {
     spectral_tilt_db: state.tilt_db,
     max_voices: state.max_voices,
     master_gain: state.master_gain,
+    noise_mix_db: state.noise_mix_db,
     per_harmonic_gains: state.per_harmonic_gains,
     wave_shapes: state.wave_shapes
   };
@@ -1112,11 +1136,11 @@ class VoiceShaperHandler(BaseHTTPRequestHandler):
             max_voices = int(body.get("max_voices", 32))
             if not (1 <= max_voices <= 64):
                 raise ValueError("max_voices must be in range 1..64")
-            gh_list = body.get("per_harmonic_gains", [1.0] * 6)
+            gh_list = body.get("per_harmonic_gains", [1.0] * max_voices)
             if not isinstance(gh_list, (list, tuple)) or len(gh_list) < 1 or len(gh_list) > 32:
                 raise ValueError("per_harmonic_gains must be list of 1..32 floats")
             per_harmonic_gains = {i + 1: float(gh_list[i]) for i in range(len(gh_list))}
-            ws_list = body.get("wave_shapes", ["sine"] * 6)
+            ws_list = body.get("wave_shapes", ["sine"] * max_voices)
             if not isinstance(ws_list, (list, tuple)) or len(ws_list) < 1 or len(ws_list) > 32:
                 raise ValueError("wave_shapes must be list of 1..32 strings")
             valid_shapes = {"sine", "square", "saw", "triangle"}
