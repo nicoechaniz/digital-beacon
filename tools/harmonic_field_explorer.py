@@ -333,6 +333,12 @@ class Handler(BaseHTTPRequestHandler):
         if parsed.path == "/panic":
             self._handle_panic()
             return
+        if parsed.path == "/beacon_on":
+            self._handle_beacon_on()
+            return
+        if parsed.path == "/beacon_off":
+            self._handle_beacon_off()
+            return
         if parsed.path == "/set_gain":
             self._handle_set_gain()
             return
@@ -420,6 +426,28 @@ class Handler(BaseHTTPRequestHandler):
         if _engine is not None:
             _engine.panic()
         self._send_json(200, {"ok": True})
+
+    def _handle_beacon_on(self):
+        if _engine is None:
+            self._send_json(503, {"error": "performance engine not started"})
+            return
+        try:
+            _engine.beacon_on()
+            self._send_json(200, {"ok": True, "state": "on"})
+        except Exception as exc:
+            log.error("/beacon_on error: %s", exc)
+            self._send_json(500, {"error": str(exc)})
+
+    def _handle_beacon_off(self):
+        if _engine is None:
+            self._send_json(503, {"error": "performance engine not started"})
+            return
+        try:
+            _engine.beacon_off()
+            self._send_json(200, {"ok": True, "state": "off"})
+        except Exception as exc:
+            log.error("/beacon_off error: %s", exc)
+            self._send_json(500, {"error": str(exc)})
 
     def _handle_set_gain(self):
         body = self._read_json_body()
@@ -947,6 +975,9 @@ function updateLiveFilters(f0, bw, nh) {
   if (!liveNodes) return;
   const active = Math.max(1, nh);
   const strict = isStrict();
+  // Normalize loudness: divide by sqrt(N) so adding harmonics doesn't jump in level.
+  const normGain = 0.75 / Math.sqrt(active);
+  liveNodes.masterGain.gain.setTargetAtTime(normGain, audioCtx.currentTime, 0.02);
   liveNodes.sumGain.gain.setTargetAtTime(1 / Math.sqrt(active), audioCtx.currentTime, 0.02);
   liveNodes.filters.forEach((node, i) => {
     const freq = (i + 1) * f0;
@@ -1151,13 +1182,18 @@ if (panicBtn) {
 }
 
 if (toggleBeaconBtn) {
-  let beaconOn = true;
-  toggleBeaconBtn.addEventListener('click', () => {
+  let beaconOn = false;
+  toggleBeaconBtn.addEventListener('click', async () => {
     beaconOn = !beaconOn;
     toggleBeaconBtn.textContent = beaconOn ? 'Beacon ON' : 'Beacon OFF';
     toggleBeaconBtn.classList.toggle('accent', beaconOn);
-    // F1 is already sent via slider; this button is just visual feedback for now.
-    setStatus(beaconOn ? 'Beacon retune active.' : 'Beacon retune paused.');
+    try {
+      const endpoint = beaconOn ? '/beacon_on' : '/beacon_off';
+      await fetch(endpoint, { method: 'POST' });
+      setStatus(beaconOn ? 'Beacon ON.' : 'Beacon OFF.');
+    } catch (e) {
+      setStatus('Beacon control error: ' + e.message);
+    }
   });
 }
 

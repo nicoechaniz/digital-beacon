@@ -334,11 +334,12 @@ class SpectrogramRenderer:
 # ─────────────────────────────────────────────────────────────────────────
 
 class HarmonicController:
-    """Control the digital_beacon Shaper and Beacon via OSC.
+    """OSC control of the digital_beacon Shaper and Beacon.
 
-    Launchpad Mini layout (programmer mode, 8x8 grid = 64 notes):
-      - Bottom 32 pads (rows 0-3): toggle mode, maps to harmonics 1-32.
-      - Top 32 pads (rows 4-7): sound-on-press mode, maps to harmonics 1-32.
+    Sends /beacon/f1, /beacon/voice_on, /beacon/voice_off, /beacon/panic,
+    /beacon/reset and /beacon/master to sclang :57120 and to the broadcast
+    port :9001. Does not handle MIDI/Launchpad directly (use
+    digital_beacon.midi_control.LaunchpadMiniControl for that).
     """
 
     def __init__(self, f1: float = 40.0, f1_min: float = 20.0, f1_max: float = 200.0,
@@ -351,14 +352,10 @@ class HarmonicController:
         self.f1_min = f1_min
         self.f1_max = f1_max
         self.gain = default_voice_gain
-        self._default_gain = default_voice_gain
         self._beacon_client = SimpleUDPClient(beacon_host, beacon_port)
         self._sclang_client = SimpleUDPClient(sclang_host, sclang_port)
         self._voice_id = 0
         self._lock = threading.Lock()
-        self._launchpad: Optional[object] = None
-        self._launchpad_thread: Optional[threading.Thread] = None
-        self._running = False
 
     def set_f1(self, f1: float) -> None:
         f1 = max(self.f1_min, min(self.f1_max, float(f1)))
@@ -392,122 +389,17 @@ class HarmonicController:
         self._beacon_client.send_message("/beacon/panic", [])
         self._sclang_client.send_message("/digital/panic", [])
 
-    # ─── Launchpad integration ─────────────────────────────────────────────────
+    def beacon_on(self, master_gain: float = 0.9) -> None:
+        """Restore beacon defaults and set master gain."""
+        self._sclang_client.send_message("/beacon/reset", [])
+        self._sclang_client.send_message("/beacon/master", [float(master_gain)])
+        self._beacon_client.send_message("/beacon/reset", [])
+        self._beacon_client.send_message("/beacon/master", [float(master_gain)])
 
-    def start_launchpad(self, port_pattern: str = "Launchpad") -> bool:
-        if not HAS_MIDO:
-            log.warning("mido not available; Launchpad disabled")
-            return False
-        if self._launchpad is not None:
-            return True
-
-        in_name = None
-        for name in mido.get_input_names():
-            if port_pattern.lower() in name.lower():
-                in_name = name
-                break
-        if not in_name:
-            log.warning("Launchpad not found (pattern=%r)", port_pattern)
-            return False
-
-        try:
-            self._in_port = mido.open_input(in_name)
-        except Exception as exc:
-            log.error("Could not open Launchpad input: %s", exc)
-            return False
-
-        self._out_port = None
-        if in_name in mido.get_output_names():
-            try:
-                self._out_port = mido.open_output(in_name)
-            except Exception:
-                pass
-        if self._out_port is None:
-            for out_name in mido.get_output_names():
-                if in_name.split(" MIDI ")[0] in out_name:
-                    try:
-                        self._out_port = mido.open_output(out_name)
-                        break
-                    except Exception:
-                        continue
-
-        self._held_toggle: dict[int, int] = {}  # bottom-half note -> voice_id
-        self._held_sop: dict[int, int] = {}     # top-half note -> voice_id
-        self._running = True
-        self._launchpad_thread = threading.Thread(target=self._run, name="explorer-launchpad", daemon=True)
-        self._launchpad_thread.start()
-        log.info("Launchpad started: %s", in_name)
-        return True
-
-    def stop_launchpad(self) -> None:
-        self._running = False
-        if self._out_port:
-            try:
-                self._out_port.close()
-            except Exception:
-                pass
-        if self._in_port:
-            try:
-                self._in_port.close()
-            except Exception:
-                pass
-        self._launchpad_thread = None
-
-    def _run(self) -> None:
-        for msg in self._in_port:
-            if not self._running:
-                break
-            self._handle_midi(msg)
-
-    def _handle_midi(self, msg) -> None:
-        if msg.type not in ("note_on", "note_off"):
-            return
-        n = self._note_to_harmonic(msg.note)
-        if n is None:
-            return
-        is_top = (msg.note // 16) >= 4
-        velocity = msg.velocity if msg.type == "note_on" else 0
-
-        if is_top:
-            # Top half: sound-on-press (voice_on while held, voice_off on release).
-            if velocity > 0:
-                if msg.note in self._held_sop:
-                    return
-                voice_id = self.voice_on(n)
-                self._held_sop[msg.note] = voice_id
-                if self._out_port:
-                    self._out_port.send(mido.Message("note_on", note=msg.note, velocity=60))
-            else:
-                voice_id = self._held_sop.pop(msg.note, None)
-                if voice_id is not None:
-                    self.voice_off(voice_id)
-                    if self._out_port:
-                        self._out_port.send(mido.Message("note_on", note=msg.note, velocity=0))
-        else:
-            # Bottom half: toggle on each press.
-            if velocity > 0:
-                existing = self._held_toggle.get(msg.note)
-                if existing is not None:
-                    self.voice_off(existing)
-                    self._held_toggle.pop(msg.note, None)
-                    if self._out_port:
-                        self._out_port.send(mido.Message("note_on", note=msg.note, velocity=0))
-                else:
-                    voice_id = self.voice_on(n)
-                    self._held_toggle[msg.note] = voice_id
-                    if self._out_port:
-                        self._out_port.send(mido.Message("note_on", note=msg.note, velocity=60))
-
-    def _note_to_harmonic(self, note: int) -> Optional[int]:
-        # Programmer-mode stride 16. Bottom-left row 0 = note 0.
-        x = note % 16
-        y = note // 16
-        if x >= 8 or y >= 8:
-            return None
-        # Use the row within the half (0-3) for the harmonic index.
-        row = y % 4
-        n = 1 + x + row * 8
-        return n if 1 <= n <= 32 else None
+    def beacon_off(self) -> None:
+        """Mute all beacon bands."""
+        self._sclang_client.send_message("/beacon/panic", [])
+        self._beacon_client.send_message("/beacon/panic", [])
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -518,11 +410,14 @@ def _import_digital_beacon():
     try:
         from digital_beacon.state import VoiceParameterStore
         from digital_beacon.audio_engine import AudioEngine
+        from digital_beacon.midi_control import LaunchpadMiniControl
         from digital_beacon.config import (
             DEFAULT_F1, F1_MIN, F1_MAX, DEFAULT_VOICE_GAIN,
             AUDIO_SAMPLE_RATE, AUDIO_BLOCK_SIZE, AUDIO_DEVICE,
         )
-        return VoiceParameterStore, AudioEngine, DEFAULT_F1, F1_MIN, F1_MAX, DEFAULT_VOICE_GAIN, AUDIO_SAMPLE_RATE, AUDIO_BLOCK_SIZE, AUDIO_DEVICE
+        return (VoiceParameterStore, AudioEngine, LaunchpadMiniControl,
+                DEFAULT_F1, F1_MIN, F1_MAX, DEFAULT_VOICE_GAIN,
+                AUDIO_SAMPLE_RATE, AUDIO_BLOCK_SIZE, AUDIO_DEVICE)
     except Exception as exc:
         raise RuntimeError(f"digital_beacon not available: {exc}")
 
@@ -532,7 +427,8 @@ class HarmonicPerformanceEngine:
 
     Combines:
       - a local Shaper additive audio engine (sounddevice sines)
-      - Launchpad Mini pad control
+      - digital_beacon.midi_control.LaunchpadMiniControl (reuses the exact
+        pad mapping, split mode and lights from digital_beacon)
       - OSC forwarding to the SC beacon for retuning and voice activation
 
     This lets the explorer be used as a live instrument without requiring the
@@ -541,8 +437,8 @@ class HarmonicPerformanceEngine:
 
     def __init__(self, f1: float = 40.0, audio_device: Optional[int | str] = None,
                  enable_launchpad: bool = True, enable_beacon_osc: bool = True):
-        (VoiceParameterStore, AudioEngine, default_f1, f1_min, f1_max,
-         default_gain, sr, block, device) = _import_digital_beacon()
+        (VoiceParameterStore, AudioEngine, LaunchpadMiniControl,
+         default_f1, f1_min, f1_max, default_gain, sr, block, device) = _import_digital_beacon()
 
         self._f1_min = f1_min
         self._f1_max = f1_max
@@ -550,7 +446,9 @@ class HarmonicPerformanceEngine:
         self._store = VoiceParameterStore()
         self._audio = AudioEngine(self._store, sample_rate=sr, block_size=block, device=audio_device or device)
         self._audio.start()
-        self._default_gain = default_gain
+
+        self._lock = threading.Lock()
+        self._voice_id_counter = 0
 
         self._osc_controller: Optional[HarmonicController] = None
         if enable_beacon_osc:
@@ -559,34 +457,29 @@ class HarmonicPerformanceEngine:
             except Exception as exc:
                 log.warning("Beacon OSC control disabled: %s", exc)
 
-        self._held_voices: dict[int, int] = {}  # harmonic_n -> voice_id
-        self._voice_id_counter = 0
-        self._lock = threading.Lock()
-        self._launchpad: Optional[HarmonicController] = None
+        self._launchpad: Optional[LaunchpadMiniControl] = None
         if enable_launchpad:
-            self._launchpad = HarmonicController(f1=f1)
-            self._launchpad.start_launchpad()
-            # Override the launchpad's voice_on/off so it drives the local engine too.
-            self._launchpad._held_local = {}
-            self._launchpad.voice_on = self._launchpad_voice_on
-            self._launchpad.voice_off = self._launchpad_voice_off
+            try:
+                self._launchpad = LaunchpadMiniControl(self._store)
+                self._launchpad.start()
+                log.info("Launchpad control started via digital_beacon.midi_control")
+            except Exception as exc:
+                log.warning("Launchpad control disabled: %s", exc)
 
         self.set_f1(f1)
 
     def set_gain(self, gain: float) -> None:
-        self._default_gain = float(gain)
-        if self._launchpad:
-            self._launchpad.gain = self._default_gain
+        """Set master gain for the local Shaper and default voice gain for OSC."""
+        gain = float(gain)
+        self._store.set_master_gain(gain)
         if self._osc_controller:
-            self._osc_controller.gain = self._default_gain
+            self._osc_controller.gain = gain
 
     def set_f1(self, f1: float) -> None:
         f1 = max(self._f1_min, min(self._f1_max, float(f1)))
         self._store.update_f1(f1)
         if self._osc_controller:
             self._osc_controller.set_f1(f1)
-        if self._launchpad:
-            self._launchpad.f1 = f1
         log.info("performance engine set f1=%.2f Hz", f1)
 
     def _next_voice_id(self) -> int:
@@ -613,24 +506,19 @@ class HarmonicPerformanceEngine:
         if self._osc_controller:
             self._osc_controller.panic()
 
-    def _launchpad_voice_on(self, harmonic_n: int, gain: Optional[float] = None) -> int:
-        voice_id = self.voice_on(harmonic_n, gain)
-        self._launchpad._held_local[harmonic_n] = voice_id
-        return voice_id
+    def beacon_on(self, master_gain: float = 0.9) -> None:
+        if self._osc_controller:
+            self._osc_controller.beacon_on(master_gain)
 
-    def _launchpad_voice_off(self, voice_id: int) -> None:
-        # Find harmonic_n by voice_id
-        for n, vid in list(self._launchpad._held_local.items()):
-            if vid == voice_id:
-                self._launchpad._held_local.pop(n, None)
-                break
-        self.voice_off(voice_id)
+    def beacon_off(self) -> None:
+        if self._osc_controller:
+            self._osc_controller.beacon_off()
 
     def stop(self) -> None:
         self.panic()
         self._audio.stop()
         if self._launchpad:
-            self._launchpad.stop_launchpad()
+            self._launchpad.stop()
 
 
 # ─────────────────────────────────────────────────────────────────────────
@@ -680,6 +568,10 @@ def mask_harmonic_series(y: np.ndarray, sr: int, f0: float,
         y_out = np.pad(y_out, (0, len(y) - len(y_out)))
     elif len(y_out) > len(y):
         y_out = y_out[:len(y)]
+
+    # Normalizer: more harmonics / wider bands should not radically increase
+    # perceived loudness. Scale by 1/sqrt(N), then peak-normalize to avoid clip.
+    y_out = y_out / np.sqrt(max(1, n_harmonics))
     pk = float(np.abs(y_out).max())
     if pk > 0:
         y_out = y_out / pk
