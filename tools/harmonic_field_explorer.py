@@ -137,9 +137,10 @@ def _spectrum_png(sample_id: str, f0: float, bandwidth_hz: float,
 
 def _mask_harmonic_series(y: np.ndarray, sr: int, f0: float,
                           bandwidth_hz: float = 5.0,
-                          n_harmonics: int = 32) -> np.ndarray:
+                          n_harmonics: int = 32,
+                          strict: bool = False) -> np.ndarray:
     """Backward-compatible wrapper around harmonic_explorer_components.mask_harmonic_series."""
-    return mask_harmonic_series(y, sr, f0, bandwidth_hz, n_harmonics)
+    return mask_harmonic_series(y, sr, f0, bandwidth_hz, n_harmonics, strict)
 
 
 def _encode_wav(y: np.ndarray, sr: int) -> bytes:
@@ -351,6 +352,7 @@ class Handler(BaseHTTPRequestHandler):
             bw = float(body.get("bandwidth_hz", 15.0))
             nh = int(body.get("n_harmonics", 64))
             max_dur = float(body.get("max_duration_s", 60.0))
+            strict = bool(body.get("strict", False))
             f0 = max(20.0, min(2000.0, f0))
             bw = max(0.5, min(200.0, bw))
             nh = max(1, min(128, nh))
@@ -358,7 +360,7 @@ class Handler(BaseHTTPRequestHandler):
             info = _load_sample(sample_id, self.cfg.sample_dir, max_duration_s=max_dur)
             y = info["y"]
             sr = info["sr"]
-            y_masked = _mask_harmonic_series(y, sr, f0, bw, nh)
+            y_masked = _mask_harmonic_series(y, sr, f0, bw, nh, strict)
             wav = _encode_wav(y_masked, sr)
             self._send_bytes(200, wav, "audio/wav")
         except Exception as exc:
@@ -445,9 +447,10 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             f0 = float(body.get("f0", 40.0))
-            bw = float(body.get("bandwidth_hz", 5.0))
-            nh = int(body.get("n_harmonics", 32))
+            bw = float(body.get("bandwidth_hz", 15.0))
+            nh = int(body.get("n_harmonics", 64))
             max_dur = float(body.get("max_duration_s", 60.0))
+            strict = bool(body.get("strict", False))
             f0 = max(20.0, min(2000.0, f0))
             bw = max(0.5, min(200.0, bw))
             nh = max(1, min(128, nh))
@@ -455,14 +458,14 @@ class Handler(BaseHTTPRequestHandler):
             out_dir = Path.home() / "Music" / "field-recordings" / "analysis" / "explorer"
             out_dir.mkdir(parents=True, exist_ok=True)
             stem = _id_to_stem(sample_id).replace(" ", "_")
-            base = f"{stem}_f0-{f0:.1f}_bw-{bw:.1f}_nh-{nh}_dur-{max_dur:.0f}s"
+            base = f"{stem}_f0-{f0:.1f}_bw-{bw:.1f}_nh-{nh}_dur-{max_dur:.0f}s{'_strict' if strict else ''}"
 
             info = _load_sample(sample_id, self.cfg.sample_dir, max_duration_s=max_dur)
             y = info["y"]
             sr = info["sr"]
 
             wav_path = out_dir / f"{base}_masked.wav"
-            y_masked = _mask_harmonic_series(y, sr, f0, bw, nh)
+            y_masked = _mask_harmonic_series(y, sr, f0, bw, nh, strict)
             wav = _encode_wav(y_masked, sr)
             wav_path.write_bytes(wav)
 
@@ -661,6 +664,7 @@ button:disabled { opacity: 0.45; cursor: not-allowed; }
         <div class="slider"><label>F0</label><input type="range" id="f0" min="20" max="1000" step="0.2" value="40"><span class="val" id="f0-val">40.0</span></div>
         <div class="slider"><label>BW</label><input type="range" id="bw" min="0.5" max="80" step="0.5" value="15"><span class="val" id="bw-val">15.0</span></div>
         <div class="slider"><label>N</label><input type="range" id="nh" min="1" max="64" step="1" value="64"><span class="val" id="nh-val">64</span></div>
+        <div class="row"><label><input type="checkbox" id="strict"> Strict comb filter</label></div>
         <div class="readout" id="harmonicity"></div>
         <div id="candidates"></div>
       </div>
@@ -729,7 +733,7 @@ const pf = el => parseFloat(el.value);
 const pi = el => parseInt(el.value, 10);
 
 const sampleSel = $('sample');
-const f0Input = $('f0'), bwInput = $('bw'), nhInput = $('nh');
+const f0Input = $('f0'), bwInput = $('bw'), nhInput = $('nh'), strictInput = $('strict');
 const f0Val = $('f0-val'), bwVal = $('bw-val'), nhVal = $('nh-val');
 const specDurInput = $('specdur'), specDurVal = $('specdur-val');
 const durInput = $('dur'), durVal = $('dur-val');
@@ -937,16 +941,19 @@ function stopLive() {
   liveNodes = null;
 }
 
+function isStrict() { return strictInput && strictInput.checked; }
+
 function updateLiveFilters(f0, bw, nh) {
   if (!liveNodes) return;
   const active = Math.max(1, nh);
+  const strict = isStrict();
   liveNodes.sumGain.gain.setTargetAtTime(1 / Math.sqrt(active), audioCtx.currentTime, 0.02);
   liveNodes.filters.forEach((node, i) => {
     const freq = (i + 1) * f0;
-    const q = freq / bw;
     const safeFreq = Math.min(freq, audioCtx.sampleRate / 2 - 1);
+    const q = strict ? Math.max(0.1, freq / bw) * 4 : Math.max(0.1, freq / bw);
     node.filter.frequency.setTargetAtTime(safeFreq, audioCtx.currentTime, 0.02);
-    node.filter.Q.setTargetAtTime(Math.max(0.1, q), audioCtx.currentTime, 0.02);
+    node.filter.Q.setTargetAtTime(q, audioCtx.currentTime, 0.02);
     node.gain.gain.setTargetAtTime(i < nh ? 1 : 0, audioCtx.currentTime, 0.02);
   });
 }
@@ -1000,7 +1007,7 @@ async function startLiveFilter() {
 
 async function renderAndPlay() {
   if (!currentSample) return;
-  const f0 = pf(f0Input), bw = pf(bwInput), nh = pi(nhInput), maxDur = pi(durInput);
+  const f0 = pf(f0Input), bw = pf(bwInput), nh = pi(nhInput), maxDur = pi(durInput), strict = isStrict();
   stopAll();
   setStatus('Rendering harmonic mask…');
   playMask.disabled = true;
@@ -1008,7 +1015,7 @@ async function renderAndPlay() {
     const res = await fetch('/mask', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: currentSample, f0, bandwidth_hz: bw, n_harmonics: nh, max_duration_s: maxDur })
+      body: JSON.stringify({ id: currentSample, f0, bandwidth_hz: bw, n_harmonics: nh, max_duration_s: maxDur, strict })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const blob = await res.blob();
@@ -1016,7 +1023,7 @@ async function renderAndPlay() {
     currentAudio = audio;
     audio.onended = () => setStatus('Mask playback finished.');
     await audio.play();
-    setStatus('Playing mask — f0=' + f0.toFixed(1) + ' Hz, bw=' + bw.toFixed(1) + ' Hz, ' + maxDur + 's');
+    setStatus('Playing mask — f0=' + f0.toFixed(1) + ' Hz, bw=' + bw.toFixed(1) + ' Hz, ' + maxDur + 's' + (strict ? ' (strict)' : ''));
   } catch (e) {
     setStatus('Error: ' + e.message);
   } finally {
@@ -1026,14 +1033,14 @@ async function renderAndPlay() {
 
 async function saveRenderToDisk() {
   if (!currentSample) return;
-  const f0 = pf(f0Input), bw = pf(bwInput), nh = pi(nhInput), maxDur = pi(durInput);
+  const f0 = pf(f0Input), bw = pf(bwInput), nh = pi(nhInput), maxDur = pi(durInput), strict = isStrict();
   setStatus('Saving WAV + PNG…');
   saveRender.disabled = true;
   try {
     const res = await fetch('/save', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: currentSample, f0, bandwidth_hz: bw, n_harmonics: nh, max_duration_s: maxDur })
+      body: JSON.stringify({ id: currentSample, f0, bandwidth_hz: bw, n_harmonics: nh, max_duration_s: maxDur, strict })
     });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
@@ -1085,6 +1092,7 @@ function onHarmonicInput() {
 }
 
 [f0Input, bwInput, nhInput].forEach(el => el.addEventListener('input', onHarmonicInput));
+if (strictInput) strictInput.addEventListener('change', () => { updateLiveFilters(pf(f0Input), pf(bwInput), pi(nhInput)); updateLabels(); });
 specDurInput.addEventListener('input', updateLabels);
 specDurInput.addEventListener('change', updateSpectrum);
 durInput.addEventListener('input', updateLabels);

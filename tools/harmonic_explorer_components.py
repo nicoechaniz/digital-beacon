@@ -651,20 +651,36 @@ def encode_wav(y: np.ndarray, sr: int) -> bytes:
 
 
 def mask_harmonic_series(y: np.ndarray, sr: int, f0: float,
-                         bandwidth_hz: float = 5.0, n_harmonics: int = 32) -> np.ndarray:
-    """Keep only STFT bins within bandwidth_hz of any f0*N harmonic."""
+                         bandwidth_hz: float = 5.0, n_harmonics: int = 32,
+                         strict: bool = False) -> np.ndarray:
+    """Keep only STFT bins within bandwidth_hz of any f0*N harmonic.
+
+    If strict=True, use a much larger FFT and a very narrow effective band so
+    that energy outside the harmonic grid is rejected as close to -inf as the
+    STFT window allows.
+    """
     if not HAS_DEPS:
         raise RuntimeError("librosa/numpy are required")
-    n_fft = 16384
+    n_fft = 65536 if strict else 16384
     hop = n_fft // 4
     S = librosa.stft(y, n_fft=n_fft, hop_length=hop)
     freqs = librosa.fft_frequencies(sr=sr, n_fft=n_fft)
+
     mask = np.zeros_like(freqs, dtype=bool)
     for n in range(1, n_harmonics + 1):
-        h = n * f0
-        if h > sr / 2:
+        target = n * f0
+        if target > sr / 2 - 50:
             break
-        mask |= (np.abs(freqs - h) <= bandwidth_hz / 2)
+        mask |= (np.abs(freqs - target) <= bandwidth_hz / 2)
+
     S_masked = S * mask[:, None]
-    y_out = librosa.istft(S_masked, hop_length=hop, length=len(y))
+    y_out = librosa.istft(S_masked, hop_length=hop, n_fft=n_fft, length=len(y))
+    y_out = np.asarray(y_out, dtype=np.float64)
+    if len(y_out) < len(y):
+        y_out = np.pad(y_out, (0, len(y) - len(y_out)))
+    elif len(y_out) > len(y):
+        y_out = y_out[:len(y)]
+    pk = float(np.abs(y_out).max())
+    if pk > 0:
+        y_out = y_out / pk
     return y_out.astype(np.float32)
