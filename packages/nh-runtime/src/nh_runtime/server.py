@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from typing import Any, Callable, Dict, List, Set
+from typing import Any, Dict, Optional, Set
 
 import websockets
 from websockets.server import WebSocketServerProtocol
@@ -17,14 +17,32 @@ logger = logging.getLogger(__name__)
 
 
 class BaseFieldServer:
-    """Emits a base harmonic field to connected clients and accepts control/sensor events."""
+    """Emits a modulated harmonic field to connected clients and accepts control/sensor events.
 
-    def __init__(self, base_field: HarmonicField = None, host: str = "127.0.0.1", port: int = 8765,
-                 update_hz: float = 10.0):
+    The server maintains a single `ModelState` as the source of truth. Clients send
+    `control_event` and `sensor_event` messages; the server applies them to the model and
+    broadcasts the resulting snapshot as `base_field`.
+    """
+
+    def __init__(
+        self,
+        base_field: HarmonicField = None,
+        host: str = "127.0.0.1",
+        port: int = 8765,
+        update_hz: float = 10.0,
+        renderer_capabilities: RendererCapabilities = None,
+        sensor_mapping: Optional[Dict[str, Any]] = None,
+    ):
         self.base_field = base_field or HarmonicField(f1=65.0)
         self.host = host
         self.port = port
         self.update_hz = update_hz
+        self.renderer_capabilities = renderer_capabilities or RendererCapabilities(
+            max_partials=32, supports_phase=True, supports_spatial=True
+        )
+        self.sensor_mapping = sensor_mapping or {}
+        self.model = ModelState()
+        self.model.update_from_base_field(self.base_field)
         self.clients: Set[WebSocketServerProtocol] = set()
         self._stop_event = asyncio.Event()
         self._server = None
@@ -33,20 +51,25 @@ class BaseFieldServer:
         self.clients.add(websocket)
         try:
             await self._send_capabilities(websocket)
-            await self._broadcast_field()
+            await self._send_field(websocket)
             await self._handle_client(websocket)
         finally:
             self.clients.discard(websocket)
 
     async def _send_capabilities(self, websocket: WebSocketServerProtocol):
-        caps = RendererCapabilities(max_partials=32, supports_phase=True, supports_spatial=True)
-        msg = TransportMessage("renderer_capabilities", caps.to_dict())
+        msg = TransportMessage("renderer_capabilities", self.renderer_capabilities.to_dict())
+        await websocket.send(msg.to_json())
+
+    async def _send_field(self, websocket: WebSocketServerProtocol):
+        snapshot = self.model.to_snapshot()
+        msg = TransportMessage("base_field", snapshot.to_dict())
         await websocket.send(msg.to_json())
 
     async def _broadcast_field(self):
         if not self.clients:
             return
-        msg = TransportMessage("base_field", self.base_field.to_dict())
+        snapshot = self.model.to_snapshot()
+        msg = TransportMessage("base_field", snapshot.to_dict())
         payload = msg.to_json()
         disconnected = []
         for client in self.clients:
@@ -63,14 +86,24 @@ class BaseFieldServer:
                 data = json.loads(message)
                 msg = TransportMessage.from_dict(data)
                 await self._handle_message(websocket, msg)
+                await self._broadcast_field()
             except Exception as e:
                 logger.warning("client message error: %s", e)
+                try:
+                    err = TransportMessage("error", {"code": "parse_error", "message": str(e)})
+                    await websocket.send(err.to_json())
+                except Exception:
+                    pass
 
     async def _handle_message(self, websocket: WebSocketServerProtocol, msg: TransportMessage):
         if msg.type == "control_event":
-            logger.debug("control_event: %s", msg.payload)
+            self.model.apply_control(msg.payload)
         elif msg.type == "sensor_event":
-            logger.debug("sensor_event: %s", msg.payload)
+            self.model.apply_sensor(msg.payload, self.sensor_mapping)
+        elif msg.type == "ping":
+            await websocket.send(TransportMessage("pong", {}).to_json())
+        elif msg.type == "pong":
+            pass
 
     async def _broadcast_loop(self):
         while not self._stop_event.is_set():
@@ -94,3 +127,4 @@ class BaseFieldServer:
 
     def update_base_field(self, field: HarmonicField):
         self.base_field = field
+        self.model.update_from_base_field(field)
