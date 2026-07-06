@@ -1,0 +1,90 @@
+:root {
+  --bg: #111;
+  --fg: #eee;
+  --accent: #6cf;
+  --error: #f66;
+  --ok: #6f6;
+  --warn: #ff6;
+  --panel: #1a1a1a;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1rem;
+}
+
+header {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--panel);
+  border-radius: 8px;
+  margin-bottom: 1rem;
+}
+
+header h1 {
+  margin: 0;
+  font-size: 1.25rem;
+  color: var(--accent);
+}
+
+#connection-status {
+  padding: 0.25rem 0.75rem;
+  border-radius: 999px;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+}
+
+#connection-status.connected { background: #163; color: var(--ok); }
+#connection-status.connecting { background: #553; color: var(--warn); }
+#connection-status.disconnected { background: #333; color: #888; }
+#connection-status.error { background: #511; color: var(--error); }
+
+.panic {
+  margin-left: auto;
+  padding: 0.5rem 1.25rem;
+  background: var(--error);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  font-weight: bold;
+  cursor: pointer;
+}
+
+.panic:disabled { opacity: 0.5; cursor: not-allowed; }
+
+main section {
+  background: var(--panel);
+  border-radius: 8px;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+#renderer-caps pre {
+  margin: 0.5rem 0 0;
+  font-size: 0.85rem;
+}
+
+#status-log {
+  max-height: 200px;
+  overflow-y: auto;
+  font-family: monospace;
+  font-size: 0.85rem;
+  color: #aaa;
+}
+
+#status-log div {
+  padding: 0.15rem 0;
+  border-bottom: 1px solid #222;
+}
