@@ -65,12 +65,30 @@ def test_websocket_sensor_event_with_mapping(client, runtime):
     assert runtime.model.master_gain == 0.75
 
 
+def test_websocket_control_event_master(client, runtime):
+    with client.websocket_connect("/nh/v1/ws") as ws:
+        ws.receive_json()
+        ws.receive_json()
+        ws.send_json({"type": "control_event", "payload": {"type": "master", "value": 0.75}})
+    assert runtime.model.master_gain == 0.75
+
+
+def test_websocket_control_event_partial_gain(client, runtime):
+    with client.websocket_connect("/nh/v1/ws") as ws:
+        ws.receive_json()
+        ws.receive_json()
+        ws.send_json({"type": "control_event", "payload": {"type": "partial_gain", "value": {"n": 3, "gain": 0.5}}})
+    assert runtime.model.partial_gain_offsets[3] == 0.5
+
+
 def test_websocket_panic_resets_model(client, runtime):
     runtime.model.f1_offset = 5.0
     runtime.model.master_gain = 0.5
+    runtime.model.partial_gain_offsets[1] = 0.2
     with client.websocket_connect("/nh/v1/ws") as ws:
         ws.receive_json()
         ws.receive_json()
         ws.send_json({"type": "control_event", "payload": {"type": "panic"}})
     assert runtime.model.f1_offset == 0.0
     assert runtime.model.master_gain == 1.0
+    assert runtime.model.partial_gain_offsets == {}

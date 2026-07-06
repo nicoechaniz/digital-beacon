@@ -6,6 +6,7 @@
   --ok: #6f6;
   --warn: #ff6;
   --panel: #1a1a1a;
+  --border: #333;
 }
 
 * { box-sizing: border-box; }
@@ -71,10 +72,87 @@ main section {
   margin-bottom: 1rem;
 }
 
+section h2 {
+  margin-top: 0;
+  font-size: 1rem;
+  color: var(--accent);
+}
+
+.control-group {
+  display: grid;
+  grid-template-columns: 120px 1fr 100px;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.control-group:last-child { border-bottom: none; }
+
+.control-group label {
+  font-size: 0.9rem;
+}
+
+.control-group input[type="range"] {
+  width: 100%;
+}
+
+.control-group input[type="number"] {
+  background: #222;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.25rem;
+  border-radius: 4px;
+}
+
 #renderer-caps pre {
   margin: 0.5rem 0 0;
   font-size: 0.85rem;
 }
+
+.partials-grid h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.95rem;
+}
+
+.partials-grid .grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 0.5rem;
+}
+
+.partial-row {
+  display: grid;
+  grid-template-columns: 30px 1fr 50px 60px;
+  align-items: center;
+  gap: 0.5rem;
+  background: #1f1f1f;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+}
+
+.partial-label {
+  font-weight: bold;
+  font-size: 0.85rem;
+}
+
+.partial-gain {
+  font-size: 0.75rem;
+  text-align: right;
+  color: #aaa;
+}
+
+.mute-btn {
+  background: #333;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.4rem;
+}
+
+.mute-btn:hover { background: #444; }
 
 #status-log {
   max-height: 200px;
