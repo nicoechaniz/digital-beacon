@@ -1,80 +1,55 @@
-# digital-beacon
+# digital-beacon / NaturalHarmony Toolkit
 
-**The Harmonic Beacon as a digital instrument.** Natural harmonics, end-to-end.
+**The Harmonic Beacon as a modular software toolkit.** Natural harmonics, end-to-end.
 
-Sister / successor of `~/Projects/beacon-spatial` (13-band ATK binaural
-spatializer) and `~/Projects/NaturalHarmony` (MIDI middleware +
-visualizer + Shaper additive synth). `digital-beacon` is the **unified
-instrument**: a 32-band binaural spatializer whose band centers are
-exactly the natural harmonic series of `f1` (default 40 Hz), driven by
-Launchpad Mini + a pure-sine additive synth played *on top* of the
-spatialized field.
+This repo is the new home of a unified toolkit built from:
 
-## Architecture
+- `digital-beacon` (32-band SC binaural spatializer + Shaper additive synth)
+- `NaturalHarmony` (MIDI middleware, key mapping, harmonic math)
+- `beacon-spatial` (13-band ATK spatializer + phone sensor UI)
+- `EEG-Game` (Muse neurofeedback + concentration estimator)
+- `Phideus` (H-series, V4-lin, A4-16k harmonic descriptors)
 
-```
-Launchpad Mini (MIDI)  ──────►  NaturalHarmony  ── /beacon/voice/* :9001 ──┐
-   pad n (1..64)                   key_mapper                               │
-   CC74 (f1)                       f1 = 40 Hz default                       │
-   CC22 (stacking)                 chromatic prototypes                     │
-   CC104 (split)                                                           │
-                                                                           ▼
-                                                          ┌────────────────────────────┐
-                                                          │  digital-beacon (this repo)│
-                                                          │                            │
-                                                          │  beacon.scd (32 BPF 1:1)   │
-                                                          │    FoaPanB                 │
-                                                          │    FoaDecode(Listen HRTF)  │
-                                                          │    BufRateScale ← vsrate   │
-                                                          │                            │
-                                                          │  digital_beacon/           │
-                                                          │    state.py (32 voices)    │
-                                                          │    audio_engine.py (sines) │
-                                                          │    osc_receiver.py         │
-                                                          │    midi_control.py         │
-                                                          │    config.py               │
-                                                          │                            │
-                                                          │  f1_bridge.py              │
-                                                          │    /beacon/f1 → vsrate     │
-                                                          │    → /beacon/vsource       │
-                                                          └────────────────────────────┘
-                                                                           │
-                                                                           ▼
-                                                                headphones (HRTF)
-                                                                + Shaper sines overlaid
-```
+> **Scope:** Software-only. Physical tines / hardware are out of scope for this foundational milestone. Backward compatibility is not preserved when it complicates the architecture.
 
-## What this is NOT (yet)
+## Packages
 
-- No EEG integration (planned, slot in `config.py`)
-- No mobile sensor layer (planned)
-- No Surge XT (Shaper IS the synth)
-- No MPE (only OSC + WebSocket)
-- No continuous f1 modulation (12 discrete points TODO)
+| Package | Purpose |
+|---|---|
+| `nh-core` | Renderer-neutral `HarmonicField`, `Partial`, `Residual`, `RendererCapabilities`, math helpers |
+| `nh-presets` | Versioned preset schema + migrations from legacy 13/32-band JSON |
+| `nh-model` | Portable runtime state with snapshots and modulation |
+| `nh-control` | Normalized `ControlEvent`, mapping graph, Launchpad adapter |
+| `nh-analysis` | F0, harmonicity, harmonic mask, Phideus descriptors (NumPy-first) |
+| `nh-sensors` | EEG processor / Muse OSC adapter, phone IMU adapter, simulators |
+| `nh-renderers` | Python/sounddevice (reference), WebAudio AudioWorklet, SuperCollider OSC |
+| `nh-runtime` | WebSocket base-field server + local model client |
 
-## Stack
+## Protocols
 
-- `scsynth` + `sclang` + ATK (Ambisonic Toolkit) — binaural engine
-- `pw-jack` (PipeWire) — audio backend
-- `sounddevice` (PortAudio) — Shaper audio engine
-- `python-osc` — control bus
-- `mido` — Launchpad Mini + Minilab3 MIDI
-- `fastapi` + WebSocket — optional web control surface
+- `docs/protocols/websocket-messages.md` — canonical internal control plane
+- `docs/protocols/sensor-event.md` — normalized sensor event schema
+- `docs/protocols/osc-bridge.md` — OSC edge/gateway compatibility layer
 
-## How to run
+## Roadmap
+
+See `docs/ROADMAP_foundational_toolkit_2026-07-06.md`.
+
+## How to run tests
 
 ```bash
 cd ~/Projects/digital-beacon
-./start.sh --file                  # beacon + shaper + bridge, source = WAV
-./start.sh --live                  # beacon source = SoundIn(0) [R24 CH1]
+python3 -m venv .venv
+source .venv/bin/activate
+pip install -e packages/nh-core -e packages/nh-presets -e packages/nh-model \
+    -e packages/nh-control -e packages/nh-analysis -e packages/nh-sensors \
+    -e packages/nh-renderers -e packages/nh-runtime
+pytest packages/
 ```
 
-## Default frequency
+## Legacy architecture
 
-- `f1 = 40.0 Hz` (NOT fixed, see `config.F1_MOD_POINTS` for future
-  12-point discrete modulation slot)
-- Band N center frequency = `f1 * N` for N = 1..32
-- Band 32 = 40 * 32 = 1280 Hz
+The old 32-band instrument stack (SuperCollider + ATK + Shaper + Launchpad) is still in `digital_beacon/` and `beacon.scd`. It will be migrated to the new renderer architecture incrementally rather than replaced in one step.
 
 ## License
 
