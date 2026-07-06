@@ -1,8 +1,8 @@
-import { connectWS, sendControl } from './ws';
+import { connectWS, sendControl, sendSensor } from './ws';
 import {
   setStatus, setRendererCaps, logStatus, renderPerformanceControls,
   updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser,
-  renderLaunchpadMirror
+  renderLaunchpadMirror, renderSensorPanel, updateMuseFocus, updateIMUYaw, updateIMUPitch
 } from './ui';
 import './style.css';
 
@@ -99,6 +99,21 @@ async function main() {
         },
       });
       renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
+      renderSensorPanel({
+        onSimulateMuse: (value) => {
+          updateMuseFocus(value);
+          sendSensor(ws, { source: 'muse', type: 'muse_focus', value });
+        },
+        onSimulateIMU: (yaw, pitch, _roll) => {
+          updateIMUYaw(yaw);
+          updateIMUPitch(pitch);
+          sendSensor(ws, { source: 'imu', type: 'imu.orientation.yaw', value: yaw });
+          sendSensor(ws, { source: 'imu', type: 'imu.orientation.pitch', value: pitch });
+        },
+        onSimulateTilt: (x, y) => {
+          sendSensor(ws, { source: 'phone', type: 'phone.tilt', value: { x, y } });
+        },
+      });
     },
     onField: (field) => {
       state.currentField = field;

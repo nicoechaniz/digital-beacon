@@ -193,3 +193,76 @@ export function renderLaunchpadMirror(state: LaunchpadState) {
     pad.classList.toggle('active', state.active.has(n));
   });
 }
+
+interface SensorPanelHandlers {
+  onSimulateMuse: (value: number) => void;
+  onSimulateIMU: (yaw: number, pitch: number, roll: number) => void;
+  onSimulateTilt: (x: number, y: number) => void;
+}
+
+export function renderSensorPanel(handlers: SensorPanelHandlers) {
+  const container = document.getElementById('sensor-panel')!;
+  container.innerHTML = '<h2>Sensors</h2>';
+
+  const museSection = document.createElement('div');
+  museSection.className = 'sensor-group';
+  museSection.innerHTML = `
+    <label>Muse focus <span id="muse-focus-display">0.00</span></label>
+    <input type="range" id="muse-focus" min="0" max="1" step="0.01" value="0" />
+    <button id="muse-send">Send Muse</button>
+  `;
+  container.appendChild(museSection);
+  museSection.querySelector('#muse-send')!.addEventListener('click', () => {
+    const val = parseFloat((museSection.querySelector('#muse-focus') as HTMLInputElement).value);
+    handlers.onSimulateMuse(val);
+  });
+
+  const imuSection = document.createElement('div');
+  imuSection.className = 'sensor-group';
+  imuSection.innerHTML = `
+    <label>IMU yaw <span id="imu-yaw-display">0°</span></label>
+    <input type="range" id="imu-yaw" min="-180" max="180" step="1" value="0" />
+    <label>Pitch <span id="imu-pitch-display">0°</span></label>
+    <input type="range" id="imu-pitch" min="-90" max="90" step="1" value="0" />
+    <button id="imu-send">Send IMU</button>
+  `;
+  container.appendChild(imuSection);
+  imuSection.querySelector('#imu-send')!.addEventListener('click', () => {
+    const yaw = parseFloat((imuSection.querySelector('#imu-yaw') as HTMLInputElement).value);
+    const pitch = parseFloat((imuSection.querySelector('#imu-pitch') as HTMLInputElement).value);
+    handlers.onSimulateIMU(yaw, pitch, 0);
+  });
+
+  const tiltSection = document.createElement('div');
+  tiltSection.className = 'sensor-group';
+  tiltSection.innerHTML = `
+    <label>Phone tilt</label>
+    <div class="tilt-pad" id="tilt-pad"></div>
+    <button id="tilt-send">Send tilt</button>
+  `;
+  container.appendChild(tiltSection);
+  let tiltX = 0, tiltY = 0;
+  tiltSection.querySelector('#tilt-pad')!.addEventListener('click', (e) => {
+    const rect = (e.target as HTMLElement).getBoundingClientRect();
+    tiltX = ((e as MouseEvent).clientX - rect.left) / rect.width * 2 - 1;
+    tiltY = ((e as MouseEvent).clientY - rect.top) / rect.height * 2 - 1;
+  });
+  tiltSection.querySelector('#tilt-send')!.addEventListener('click', () => {
+    handlers.onSimulateTilt(tiltX, tiltY);
+  });
+}
+
+export function updateMuseFocus(value: number) {
+  const el = document.getElementById('muse-focus-display') as HTMLSpanElement | null;
+  if (el) el.textContent = value.toFixed(2);
+}
+
+export function updateIMUYaw(yaw: number) {
+  const el = document.getElementById('imu-yaw-display') as HTMLSpanElement | null;
+  if (el) el.textContent = yaw.toFixed(0) + '°';
+}
+
+export function updateIMUPitch(pitch: number) {
+  const el = document.getElementById('imu-pitch-display') as HTMLSpanElement | null;
+  if (el) el.textContent = pitch.toFixed(0) + '°';
+}

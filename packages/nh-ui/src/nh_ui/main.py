@@ -17,6 +17,11 @@ async def main():
             supports_phase=True,
             supports_spatial=True,
         ),
+        sensor_mapping={
+            "muse_focus": {"param": "master_gain", "scale": 1.0, "offset": 0.0},
+            "imu.orientation.yaw": {"param": "spatial_rotation", "scale": 1.0, "offset": 0.0},
+            "imu.orientation.pitch": {"param": "f1_offset", "scale": 0.5, "offset": 0.0},
+        },
     )
     await runtime.start()
     set_runtime_server(runtime)
