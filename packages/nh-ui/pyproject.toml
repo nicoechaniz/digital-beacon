@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nh-ui"
+version = "0.1.0"
+description = "Web UI host for NaturalHarmony"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = ["nh-core", "nh-model", "nh-presets", "nh-runtime", "nh-renderers", "nh-control", "nh-sensors", "fastapi", "uvicorn", "websockets", "python-multipart", "aiofiles"]
+
+[tool.setuptools.package-data]
+nh_ui = ["static/*", "static/**/*"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
