@@ -12,6 +12,7 @@ from websockets.server import WebSocketServerProtocol
 from nh_core import HarmonicField, RendererCapabilities
 from nh_model import ModelState
 from nh_runtime.transport import TransportMessage
+from nh_renderers.renderer import Renderer
 
 logger = logging.getLogger(__name__)
 
@@ -32,22 +33,30 @@ class BaseFieldServer:
         update_hz: float = 10.0,
         renderer_capabilities: RendererCapabilities = None,
         sensor_mapping: Optional[Dict[str, Any]] = None,
+        renderer: Optional[Renderer] = None,
+        renderer_name: Optional[str] = None,
     ):
         self.base_field = base_field or HarmonicField(f1=65.0)
         self.host = host
         self.port = port
         self.update_hz = update_hz
-        self.renderer_capabilities = renderer_capabilities or RendererCapabilities(
+        self._configured_capabilities = renderer_capabilities or RendererCapabilities(
             max_partials=32, supports_phase=True, supports_spatial=True
         )
+        self.renderer_capabilities = self._configured_capabilities
         self.sensor_mapping = sensor_mapping or {}
         self.sensor_influence: float = 1.0
         self.sensor_sources_enabled: Dict[str, bool] = {}
+        self.renderer: Optional[Renderer] = None
+        self.renderer_name: Optional[str] = None
         self.model = ModelState()
         self.model.update_from_base_field(self.base_field)
         self.clients: Set[WebSocketServerProtocol] = set()
         self._stop_event = asyncio.Event()
         self._server = None
+        if renderer is not None:
+            self.renderer = renderer
+            self.renderer_name = renderer_name or renderer.__class__.__name__
 
     async def register(self, websocket: WebSocketServerProtocol):
         self.clients.add(websocket)
@@ -81,6 +90,51 @@ class BaseFieldServer:
                 disconnected.append(client)
         for client in disconnected:
             self.clients.discard(client)
+
+    async def _broadcast_capabilities(self):
+        if not self.clients:
+            return
+        msg = TransportMessage("renderer_capabilities", self.renderer_capabilities.to_dict())
+        payload = msg.to_json()
+        disconnected = []
+        for client in self.clients:
+            try:
+                await client.send(payload)
+            except Exception:
+                disconnected.append(client)
+        for client in disconnected:
+            self.clients.discard(client)
+
+    async def set_renderer(self, renderer: Optional[Renderer] = None, name: Optional[str] = None):
+        """Switch the active server-side renderer and broadcast new capabilities.
+
+        Pass ``renderer=None`` to disable server-side rendering (e.g. for WebAudio).
+        """
+        if renderer is self.renderer:
+            return
+        if self.renderer is not None:
+            try:
+                self.renderer.stop()
+            except Exception as e:
+                logger.warning("renderer stop error: %s", e)
+        self.renderer = renderer
+        self.renderer_name = name or (renderer.__class__.__name__ if renderer else None)
+        if renderer is not None:
+            try:
+                self.renderer_capabilities = renderer.get_capabilities()
+            except Exception as e:
+                logger.warning("renderer capabilities error: %s", e)
+                self.renderer_capabilities = self._configured_capabilities
+            try:
+                renderer.start()
+            except Exception as e:
+                logger.error("renderer start failed: %s", e)
+                self.renderer = None
+                self.renderer_name = None
+                self.renderer_capabilities = self._configured_capabilities
+        else:
+            self.renderer_capabilities = self._configured_capabilities
+        await self._broadcast_capabilities()
 
     async def _handle_client(self, websocket: WebSocketServerProtocol):
         async for message in websocket:
@@ -155,6 +209,11 @@ class BaseFieldServer:
     async def _broadcast_loop(self):
         while not self._stop_event.is_set():
             await self._broadcast_field()
+            if self.renderer is not None and self.renderer.is_running:
+                try:
+                    self.renderer.render(self.model.to_snapshot())
+                except Exception as e:
+                    logger.warning("renderer render error: %s", e)
             try:
                 await asyncio.wait_for(self._stop_event.wait(), timeout=1.0 / self.update_hz)
             except asyncio.TimeoutError:
@@ -163,11 +222,25 @@ class BaseFieldServer:
     async def start(self):
         self._stop_event.clear()
         self._server = await websockets.serve(self.register, self.host, self.port)
+        if self.renderer is not None:
+            try:
+                self.renderer.start()
+                self.renderer_capabilities = self.renderer.get_capabilities()
+            except Exception as e:
+                logger.error("renderer start failed at startup: %s", e)
+                self.renderer = None
+                self.renderer_name = None
         asyncio.create_task(self._broadcast_loop())
         logger.info("BaseFieldServer listening on ws://%s:%d", self.host, self.port)
 
     async def stop(self):
         self._stop_event.set()
+        if self.renderer is not None:
+            try:
+                self.renderer.stop()
+            except Exception as e:
+                logger.warning("renderer stop error during shutdown: %s", e)
+            self.renderer = None
         if self._server:
             self._server.close()
             await self._server.wait_closed()

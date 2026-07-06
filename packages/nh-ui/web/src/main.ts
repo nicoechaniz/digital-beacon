@@ -1,9 +1,12 @@
 import { connectWS, sendControl, sendSensor } from './ws';
+import type { WSConnection } from './ws';
 import { WebAudioRenderer } from './audio';
+import type { AudioStatus } from './audio';
 import {
-  setStatus, setRendererCaps, logStatus, renderPerformanceControls,
-  updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser,
-  renderLaunchpadMirror, renderSensorPanel, renderSensorSafety, updateMuseFocus, updateIMUYaw, updateIMUPitch
+  setStatus, setRendererCaps, setRendererStatus, setAudioStatus, logStatus,
+  renderPerformanceControls, updateF1Display, updateMasterDisplay, updatePartialDisplay,
+  renderPresetBrowser, renderLaunchpadMirror, renderSensorPanel, renderSensorSafety,
+  updateMuseFocus, updateIMUYaw, updateIMUPitch, renderRendererSelector
 } from './ui';
 import './style.css';
 
@@ -15,6 +18,7 @@ interface RuntimeState {
   muted: Set<number>;
   maxPartials: number;
   currentField: any;
+  renderer: 'python' | 'webaudio';
 }
 
 const state: RuntimeState = {
@@ -25,6 +29,7 @@ const state: RuntimeState = {
   muted: new Set(),
   maxPartials: 32,
   currentField: null,
+  renderer: 'python',
 };
 
 const launchpadState = { active: new Set<number>() };
@@ -83,11 +88,46 @@ async function saveSnapshot() {
   }
 }
 
+async function setRenderer(renderer: 'python' | 'webaudio') {
+  const res = await fetch('/nh/v1/renderer', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ renderer }),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    state.renderer = renderer;
+    setRendererStatus(renderer, true);
+    logStatus(`Renderer switched to ${renderer}`);
+  } else {
+    logStatus(`Failed to switch renderer: ${data.detail || 'unknown'}`);
+  }
+}
+
+async function initRendererSelector() {
+  try {
+    const res = await fetch('/nh/v1/renderer');
+    const data = await res.json();
+    state.renderer = data.renderer === 'webaudio' ? 'webaudio' : 'python';
+  } catch (e) {
+    logStatus('Failed to fetch current renderer; defaulting to Python');
+  }
+  renderRendererSelector(state.renderer, {
+    onChange: (renderer) => setRenderer(renderer),
+  });
+  setRendererStatus(state.renderer, true);
+}
+
 async function main() {
   setStatus('connecting');
+  await initRendererSelector();
+
   ws = await connectWS({
-    onCapabilities: (caps) => {
+    onOpen: () => {
       setStatus('connected');
+      logStatus('WebSocket connected');
+    },
+    onCapabilities: (caps) => {
       setRendererCaps(caps);
       state.maxPartials = caps.max_partials || 32;
       renderPerformanceControls(state, {
@@ -129,7 +169,9 @@ async function main() {
       state.currentField = field;
       state.baseF1 = field.f1 - state.f1Offset;
       updateF1Display(getF1());
-      audioRenderer.render(field);
+      if (state.renderer === 'webaudio') {
+        audioRenderer.render(field);
+      }
     },
     onControl: (event) => {
       if (event.type === 'pad_on') {
@@ -146,8 +188,11 @@ async function main() {
       setStatus('error');
       logStatus(`WS error: ${err.message || err}`);
     },
-    onClose: () => setStatus('disconnected'),
-  });
+    onClose: () => {
+      setStatus('disconnected');
+      logStatus('WebSocket disconnected');
+    },
+  }, { autoReconnect: true });
 
   const panic = document.getElementById('panic') as HTMLButtonElement;
   panic.disabled = false;
@@ -166,11 +211,19 @@ async function main() {
           audioBtn.textContent = 'Stop Audio';
           logStatus('Audio started');
         }
-      } catch (e) {
+      } catch (e: any) {
         logStatus(`Audio error: ${e}`);
       }
     });
   }
+
+  audioRenderer.onStatusChange((status: AudioStatus) => {
+    setAudioStatus(status);
+    if (status.state === 'error' || status.state === 'denied') {
+      logStatus(`Audio ${status.state}: ${status.message || ''}`);
+    }
+  });
+
   panic.addEventListener('click', () => {
     sendControl(ws, { type: 'panic', value: null });
     state.f1Offset = 0;
@@ -183,5 +236,5 @@ async function main() {
   });
 }
 
-let ws: WebSocket;
+let ws: WSConnection;
 main();

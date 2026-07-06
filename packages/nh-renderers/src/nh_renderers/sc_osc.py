@@ -1,7 +1,7 @@
 import time
 from typing import Any, Dict, Optional
 
-from nh_core import HarmonicField
+from nh_core import HarmonicField, RendererCapabilities
 from nh_renderers.renderer import Renderer
 from pythonosc.udp_client import SimpleUDPClient
 
@@ -52,3 +52,14 @@ class SuperColliderOSCAdapter(Renderer):
     @property
     def is_running(self) -> bool:
         return self._running
+
+    def get_capabilities(self) -> RendererCapabilities:
+        return RendererCapabilities(
+            max_partials=self.max_partials,
+            supports_phase=False,
+            supports_spatial=True,
+            spatial_mode="ambisonic",
+            supports_residual=False,
+            sample_rate=None,
+            block_size=None,
+        )

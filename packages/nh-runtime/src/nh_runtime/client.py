@@ -24,10 +24,11 @@ class LocalModelClient:
     """Connects to a BaseFieldServer, maintains a local ModelState, and renders audio."""
 
     def __init__(self, uri: str = "ws://127.0.0.1:8765", renderer: PythonSounddeviceRenderer = None,
-                 on_field: Callable[[HarmonicField], None] = None):
+                 on_field: Optional[Callable[[HarmonicField], None]] = None, renderer_autostart: bool = True):
         self.uri = uri
         self.renderer = renderer or PythonSounddeviceRenderer(sr=48000, block_size=512)
         self.on_field = on_field
+        self.renderer_autostart = renderer_autostart
         self.model = ModelState()
         self.websocket: Optional[WebSocketClientProtocol] = None
         self._running = False
@@ -35,7 +36,8 @@ class LocalModelClient:
     async def start(self):
         self.websocket = await websockets.connect(self.uri)
         self._running = True
-        self.renderer.start()
+        if self.renderer_autostart:
+            self.renderer.start()
         asyncio.create_task(self._receive_loop())
         asyncio.create_task(self._render_loop())
         logger.info("LocalModelClient connected to %s", self.uri)

@@ -1,9 +1,10 @@
 """NaturalHarmony UI host."""
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -20,13 +21,40 @@ PRESETS_DIR = Path("/home/nicolas/Projects/digital-beacon/data/migrated_presets"
 UPLOAD_DIR = Path("/home/nicolas/Projects/digital-beacon/data/uploads")
 
 app = FastAPI(title="NaturalHarmony UI")
+app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
 
 # The runtime server is managed externally and injected here.
 _runtime_server: Optional[BaseFieldServer] = None
 
+# Renderer selection is managed externally. The UI can read and write it.
+_current_renderer: str = "python"
+RendererCallback = Callable[[str], Union[None, Awaitable[None]]]
+_renderer_changed_callback: Optional[RendererCallback] = None
+
+
 def set_runtime_server(server: BaseFieldServer) -> None:
     global _runtime_server
     _runtime_server = server
+
+
+def set_renderer_changed_callback(callback: Optional[RendererCallback]) -> None:
+    global _renderer_changed_callback
+    _renderer_changed_callback = callback
+
+
+def get_renderer_selection() -> str:
+    return _current_renderer
+
+
+def set_renderer_selection(renderer: str) -> None:
+    global _current_renderer
+    if renderer not in ("webaudio", "python"):
+        raise ValueError(f"unsupported renderer: {renderer}")
+    _current_renderer = renderer
+    if _renderer_changed_callback is not None:
+        result = _renderer_changed_callback(renderer)
+        if asyncio.iscoroutine(result):
+            asyncio.create_task(result)
 
 
 @app.get("/")
@@ -109,6 +137,23 @@ async def analyze_wav(file: UploadFile = File(...)):
     return {"ok": True, "path": str(dest), "f1": None, "note": "analysis wired in M2"}
 
 
+@app.get("/nh/v1/renderer")
+async def get_renderer() -> Dict[str, str]:
+    return {"renderer": _current_renderer}
+
+
+@app.post("/nh/v1/renderer")
+async def set_renderer(data: Dict[str, Any]):
+    renderer = data.get("renderer")
+    if renderer not in ("webaudio", "python"):
+        raise HTTPException(status_code=400, detail="renderer must be 'webaudio' or 'python'")
+    try:
+        set_renderer_selection(renderer)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"ok": True, "renderer": renderer}
+
+
 @app.websocket("/nh/v1/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
@@ -148,6 +193,20 @@ async def _send_field(websocket, runtime: BaseFieldServer):
 
 async def _handle_client_message(websocket, runtime: BaseFieldServer, msg: TransportMessage):
     if msg.type == "control_event":
+        etype = msg.payload.get("type")
+        if etype == "select_renderer":
+            selected = msg.payload.get("value")
+            available = getattr(runtime.renderer_capabilities, "available_renderers", None) or []
+            if selected and available and selected in available:
+                try:
+                    set_renderer_selection(selected)
+                except ValueError as exc:
+                    await websocket.send_text(TransportMessage("error", {"code": "invalid_renderer", "message": str(exc)}).to_json())
+                    return
+                await websocket.send_text(TransportMessage("renderer_selected", {"renderer": selected}).to_json())
+            else:
+                await websocket.send_text(TransportMessage("error", {"code": "invalid_renderer", "message": f"renderer {selected} not available"}).to_json())
+            return
         runtime.model.apply_control(msg.payload)
     elif msg.type == "sensor_event":
         runtime.model.apply_sensor(msg.payload, runtime.sensor_mapping)

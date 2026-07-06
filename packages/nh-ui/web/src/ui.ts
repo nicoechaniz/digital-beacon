@@ -10,6 +10,58 @@ export function setRendererCaps(caps: any) {
   el.innerHTML = '<pre>' + lines.join('\n') + '</pre>';
 }
 
+export function setRendererStatus(state: 'python' | 'webaudio', active: boolean) {
+  const el = document.getElementById('renderer-status') as HTMLSpanElement | null;
+  if (!el) return;
+  el.className = active ? 'status-ok' : 'status-warn';
+  el.textContent = `${state === 'python' ? 'Python (sounddevice)' : 'WebAudio (browser)'} ${active ? 'active' : 'inactive'}`;
+}
+
+export function setAudioStatus(status: { state: string; message?: string }) {
+  const el = document.getElementById('audio-status') as HTMLSpanElement | null;
+  if (!el) return;
+  const label = status.state.charAt(0).toUpperCase() + status.state.slice(1);
+  el.className = `audio-${status.state}`;
+  el.textContent = label;
+  if (status.message) {
+    el.title = status.message;
+  }
+}
+
+interface RendererSelectorHandlers {
+  onChange: (renderer: 'python' | 'webaudio') => void;
+}
+
+export function renderRendererSelector(
+  current: 'python' | 'webaudio',
+  handlers: RendererSelectorHandlers
+) {
+  const container = document.getElementById('renderer-section')!;
+  container.innerHTML = '<h2>Renderer</h2>';
+
+  const row = document.createElement('div');
+  row.className = 'renderer-row';
+  row.innerHTML = `
+    <select id="renderer-select">
+      <option value="webaudio">WebAudio (browser)</option>
+      <option value="python">Python (sounddevice)</option>
+    </select>
+    <span id="renderer-status" class="status-warn">Unknown</span>
+  `;
+  container.appendChild(row);
+
+  const caps = document.createElement('div');
+  caps.id = 'renderer-caps';
+  container.appendChild(caps);
+
+  const select = row.querySelector('#renderer-select') as HTMLSelectElement;
+  select.value = current;
+  select.addEventListener('change', () => {
+    const value = select.value as 'python' | 'webaudio';
+    handlers.onChange(value);
+  });
+}
+
 export function logStatus(message: string) {
   const el = document.getElementById('status-log')!;
   const line = document.createElement('div');

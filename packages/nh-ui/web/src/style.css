@@ -292,3 +292,42 @@ section h2 {
   opacity: 0.5;
   cursor: not-allowed;
 }
+
+#audio-status {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  background: #333;
+  color: #888;
+}
+
+.audio-idle { background: #333; color: #888; }
+.audio-starting { background: #553; color: var(--warn); }
+.audio-running { background: #163; color: var(--ok); }
+.audio-suspended { background: #553; color: var(--warn); }
+.audio-error { background: #511; color: var(--error); }
+.audio-denied { background: #511; color: var(--error); }
+
+.renderer-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.renderer-row select {
+  background: #222;
+  color: var(--fg);
+  border: 1px solid var(--border);
+  padding: 0.4rem;
+  border-radius: 4px;
+}
+
+#renderer-status {
+  font-size: 0.8rem;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+}
+
+.status-ok { background: #163; color: var(--ok); }
+.status-warn { background: #553; color: var(--warn); }
