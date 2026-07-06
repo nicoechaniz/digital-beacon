@@ -277,3 +277,18 @@ section h2 {
   font-size: 0.85rem;
   text-transform: capitalize;
 }
+
+.audio-toggle {
+  margin-left: auto;
+  padding: 0.5rem 1rem;
+  background: #2a4a6a;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.audio-toggle:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}

@@ -1,4 +1,5 @@
 import { connectWS, sendControl, sendSensor } from './ws';
+import { WebAudioRenderer } from './audio';
 import {
   setStatus, setRendererCaps, logStatus, renderPerformanceControls,
   updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser,
@@ -27,6 +28,7 @@ const state: RuntimeState = {
 };
 
 const launchpadState = { active: new Set<number>() };
+const audioRenderer = new WebAudioRenderer();
 
 function getF1() {
   return state.baseF1 + state.f1Offset;
@@ -127,6 +129,7 @@ async function main() {
       state.currentField = field;
       state.baseF1 = field.f1 - state.f1Offset;
       updateF1Display(getF1());
+      audioRenderer.render(field);
     },
     onControl: (event) => {
       if (event.type === 'pad_on') {
@@ -148,6 +151,26 @@ async function main() {
 
   const panic = document.getElementById('panic') as HTMLButtonElement;
   panic.disabled = false;
+
+  const audioBtn = document.getElementById('audio-toggle') as HTMLButtonElement;
+  if (audioBtn) {
+    audioBtn.disabled = false;
+    audioBtn.addEventListener('click', async () => {
+      try {
+        if (audioRenderer.running) {
+          audioRenderer.stop();
+          audioBtn.textContent = 'Start Audio';
+          logStatus('Audio stopped');
+        } else {
+          await audioRenderer.start();
+          audioBtn.textContent = 'Stop Audio';
+          logStatus('Audio started');
+        }
+      } catch (e) {
+        logStatus(`Audio error: ${e}`);
+      }
+    });
+  }
   panic.addEventListener('click', () => {
     sendControl(ws, { type: 'panic', value: null });
     state.f1Offset = 0;
