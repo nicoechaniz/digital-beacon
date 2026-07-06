@@ -262,3 +262,18 @@ section h2 {
   border-radius: 50%;
   transform: translate(-50%, -50%);
 }
+
+.sensor-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.4rem 0;
+  border-bottom: 1px solid var(--border);
+}
+
+.sensor-source-row:last-child { border-bottom: none; }
+
+.sensor-source-row label {
+  font-size: 0.85rem;
+  text-transform: capitalize;
+}

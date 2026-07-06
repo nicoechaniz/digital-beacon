@@ -24,7 +24,6 @@ app = FastAPI(title="NaturalHarmony UI")
 # The runtime server is managed externally and injected here.
 _runtime_server: Optional[BaseFieldServer] = None
 
-
 def set_runtime_server(server: BaseFieldServer) -> None:
     global _runtime_server
     _runtime_server = server

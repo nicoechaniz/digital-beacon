@@ -266,3 +266,46 @@ export function updateIMUPitch(pitch: number) {
   const el = document.getElementById('imu-pitch-display') as HTMLSpanElement | null;
   if (el) el.textContent = pitch.toFixed(0) + '°';
 }
+
+interface SensorSafetyHandlers {
+  onInfluenceChange: (value: number) => void;
+  onSourceEnable: (source: string, enabled: boolean) => void;
+}
+
+export function renderSensorSafety(handlers: SensorSafetyHandlers) {
+  const container = document.getElementById('sensor-safety')!;
+  container.innerHTML = '<h2>Sensor Safety</h2>';
+
+  const influenceSection = document.createElement('div');
+  influenceSection.className = 'control-group';
+  influenceSection.innerHTML = `
+    <label>Influence <span id="sensor-influence-display">100%</span></label>
+    <input type="range" id="sensor-influence" min="0" max="1" step="0.01" value="1" />
+  `;
+  container.appendChild(influenceSection);
+  const influenceSlider = influenceSection.querySelector('#sensor-influence') as HTMLInputElement;
+  influenceSlider.addEventListener('input', () => {
+    const val = parseFloat(influenceSlider.value);
+    const display = document.getElementById('sensor-influence-display') as HTMLSpanElement;
+    display.textContent = Math.round(val * 100) + '%';
+    handlers.onInfluenceChange(val);
+  });
+
+  const sources = ['muse', 'imu', 'phone'];
+  sources.forEach((source) => {
+    const row = document.createElement('div');
+    row.className = 'sensor-source-row';
+    row.innerHTML = `
+      <label>${source}</label>
+      <input type="checkbox" class="sensor-source-toggle" data-source="${source}" checked />
+    `;
+    container.appendChild(row);
+  });
+
+  container.querySelectorAll('.sensor-source-toggle').forEach((toggle) => {
+    toggle.addEventListener('change', (e) => {
+      const target = e.target as HTMLInputElement;
+      handlers.onSourceEnable(target.dataset.source!, target.checked);
+    });
+  });
+}

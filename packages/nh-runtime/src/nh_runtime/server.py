@@ -41,6 +41,8 @@ class BaseFieldServer:
             max_partials=32, supports_phase=True, supports_spatial=True
         )
         self.sensor_mapping = sensor_mapping or {}
+        self.sensor_influence: float = 1.0
+        self.sensor_sources_enabled: Dict[str, bool] = {}
         self.model = ModelState()
         self.model.update_from_base_field(self.base_field)
         self.clients: Set[WebSocketServerProtocol] = set()
@@ -95,12 +97,42 @@ class BaseFieldServer:
                 except Exception:
                     pass
 
+    def _apply_sensor_safety(self, event: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Apply global influence and per-source kill switch to a sensor event.
+
+        Returns None if the event should be hard-killed.
+        """
+        if self.sensor_influence <= 0.0:
+            return None
+        source = event.get("source", "unknown")
+        if source in self.sensor_sources_enabled and not self.sensor_sources_enabled[source]:
+            return None
+        if self.sensor_influence >= 1.0:
+            return event
+        scaled = dict(event)
+        value = scaled.get("value")
+        if isinstance(value, (int, float)):
+            scaled["value"] = value * self.sensor_influence
+        elif isinstance(value, dict):
+            scaled["value"] = {k: (v * self.sensor_influence if isinstance(v, (int, float)) else v) for k, v in value.items()}
+        return scaled
+
     async def _handle_message(self, websocket: WebSocketServerProtocol, msg: TransportMessage):
         if msg.type == "control_event":
+            etype = msg.payload.get("type")
+            if etype == "sensor_influence":
+                self.sensor_influence = max(0.0, min(1.0, float(msg.payload.get("value", 1.0))))
+                return
+            if etype == "sensor_source_enable":
+                cfg = msg.payload.get("value", {})
+                self.sensor_sources_enabled[cfg.get("source", "unknown")] = bool(cfg.get("enabled", True))
+                return
             self.model.apply_control(msg.payload)
             await self._relay_control_event(websocket, msg)
         elif msg.type == "sensor_event":
-            self.model.apply_sensor(msg.payload, self.sensor_mapping)
+            safe_event = self._apply_sensor_safety(msg.payload)
+            if safe_event is not None:
+                self.model.apply_sensor(safe_event, self.sensor_mapping)
         elif msg.type == "ping":
             await websocket.send_text(TransportMessage("pong", {}).to_json())
         elif msg.type == "pong":

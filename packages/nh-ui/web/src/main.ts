@@ -2,7 +2,7 @@ import { connectWS, sendControl, sendSensor } from './ws';
 import {
   setStatus, setRendererCaps, logStatus, renderPerformanceControls,
   updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser,
-  renderLaunchpadMirror, renderSensorPanel, updateMuseFocus, updateIMUYaw, updateIMUPitch
+  renderLaunchpadMirror, renderSensorPanel, renderSensorSafety, updateMuseFocus, updateIMUYaw, updateIMUPitch
 } from './ui';
 import './style.css';
 
@@ -112,6 +112,14 @@ async function main() {
         },
         onSimulateTilt: (x, y) => {
           sendSensor(ws, { source: 'phone', type: 'phone.tilt', value: { x, y } });
+        },
+      });
+      renderSensorSafety({
+        onInfluenceChange: (value) => {
+          sendControl(ws, { type: 'sensor_influence', value });
+        },
+        onSourceEnable: (source, enabled) => {
+          sendControl(ws, { type: 'sensor_source_enable', value: { source, enabled } });
         },
       });
     },

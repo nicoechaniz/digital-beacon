@@ -87,6 +87,8 @@ def test_websocket_sensor_event_with_mapping(client, runtime):
     assert runtime.model.master_gain == 0.75
 
 
+
+
 def test_websocket_control_event_master(client, runtime):
     with client.websocket_connect("/nh/v1/ws") as ws:
         ws.receive_json()
