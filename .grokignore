@@ -1,0 +1,16 @@
+# Grokignore for digital-beacon — exclude large data dirs so Grok doesn't timeout scanning them
+wav/
+Music/
+.venv/
+.git/
+__pycache__/
+*.pyc
+runs/
+metrics/
+node_modules/
+*.wav
+*.mp3
+*.m4a
+*.zip
+dist/
+build/
