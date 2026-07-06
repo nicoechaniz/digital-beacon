@@ -45,3 +45,28 @@ async def test_client_updates_model():
         await client.stop()
     finally:
         await server.stop()
+
+
+@pytest.mark.asyncio
+async def test_server_relays_control_event_to_other_clients():
+    server = BaseFieldServer(host="127.0.0.1", port=18767, update_hz=20.0)
+    await server.start()
+    try:
+        ws1 = await websockets.connect("ws://127.0.0.1:18767")
+        ws2 = await websockets.connect("ws://127.0.0.1:18767")
+        try:
+            await ws1.recv()  # capabilities
+            await ws1.recv()  # base_field
+            await ws2.recv()  # capabilities
+            await ws2.recv()  # base_field
+            await ws1.send(TransportMessage("control_event", {"type": "pad_on", "value": {"n": 5}}).to_json())
+            msg = await asyncio.wait_for(ws2.recv(), timeout=2.0)
+            data = TransportMessage.from_json(msg)
+            assert data.type == "control_event"
+            assert data.payload["type"] == "pad_on"
+            assert data.payload["value"]["n"] == 5
+        finally:
+            await ws1.close()
+            await ws2.close()
+    finally:
+        await server.stop()

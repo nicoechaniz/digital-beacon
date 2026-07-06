@@ -3,6 +3,7 @@ const WS_PATH = '/nh/v1/ws';
 export interface WSHandlers {
   onCapabilities?: (caps: any) => void;
   onField?: (field: any) => void;
+  onControl?: (event: any) => void;
   onError?: (err: any) => void;
   onClose?: () => void;
 }
@@ -22,6 +23,8 @@ export function connectWS(handlers: WSHandlers): Promise<WebSocket> {
           handlers.onCapabilities?.(msg.payload);
         } else if (msg.type === 'base_field') {
           handlers.onField?.(msg.payload);
+        } else if (msg.type === 'control_event') {
+          handlers.onControl?.(msg.payload);
         } else if (msg.type === 'error') {
           handlers.onError?.(msg.payload);
         }

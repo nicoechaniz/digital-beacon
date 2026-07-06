@@ -164,3 +164,32 @@ export async function renderPresetBrowser(handlers: PresetBrowserHandlers) {
   });
   saveBtn.addEventListener('click', () => handlers.onSave());
 }
+
+interface LaunchpadState {
+  active: Set<number>;
+}
+
+export function renderLaunchpadMirror(state: LaunchpadState) {
+  let container = document.getElementById('launchpad-mirror');
+  if (!container) return;
+  if (container.children.length === 0) {
+    container.innerHTML = '<h2>Launchpad</h2>';
+    const grid = document.createElement('div');
+    grid.className = 'launchpad-grid';
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const n = row * 8 + col;
+        const btn = document.createElement('div');
+        btn.className = 'launchpad-pad';
+        btn.dataset.n = String(n);
+        btn.textContent = String(n + 1);
+        grid.appendChild(btn);
+      }
+    }
+    container.appendChild(grid);
+  }
+  container.querySelectorAll('.launchpad-pad').forEach((pad) => {
+    const n = parseInt((pad as HTMLElement).dataset.n!);
+    pad.classList.toggle('active', state.active.has(n));
+  });
+}

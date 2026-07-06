@@ -1,7 +1,8 @@
 import { connectWS, sendControl } from './ws';
 import {
   setStatus, setRendererCaps, logStatus, renderPerformanceControls,
-  updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser
+  updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser,
+  renderLaunchpadMirror
 } from './ui';
 import './style.css';
 
@@ -24,6 +25,8 @@ const state: RuntimeState = {
   maxPartials: 32,
   currentField: null,
 };
+
+const launchpadState = { active: new Set<number>() };
 
 function getF1() {
   return state.baseF1 + state.f1Offset;
@@ -101,6 +104,17 @@ async function main() {
       state.currentField = field;
       state.baseF1 = field.f1 - state.f1Offset;
       updateF1Display(getF1());
+    },
+    onControl: (event) => {
+      if (event.type === 'pad_on') {
+        const n = event.value?.n ?? 0;
+        launchpadState.active.add(n);
+        renderLaunchpadMirror(launchpadState);
+        setTimeout(() => {
+          launchpadState.active.delete(n);
+          renderLaunchpadMirror(launchpadState);
+        }, 200);
+      }
     },
     onError: (err) => {
       setStatus('error');

@@ -98,12 +98,27 @@ class BaseFieldServer:
     async def _handle_message(self, websocket: WebSocketServerProtocol, msg: TransportMessage):
         if msg.type == "control_event":
             self.model.apply_control(msg.payload)
+            await self._relay_control_event(websocket, msg)
         elif msg.type == "sensor_event":
             self.model.apply_sensor(msg.payload, self.sensor_mapping)
         elif msg.type == "ping":
-            await websocket.send(TransportMessage("pong", {}).to_json())
+            await websocket.send_text(TransportMessage("pong", {}).to_json())
         elif msg.type == "pong":
             pass
+
+    async def _relay_control_event(self, sender: WebSocketServerProtocol, msg: TransportMessage):
+        """Relay non-state control events (e.g. pad_on) to other clients for UI mirror."""
+        payload = msg.to_json()
+        disconnected = []
+        for client in self.clients:
+            if client is sender:
+                continue
+            try:
+                await client.send(payload)
+            except Exception:
+                disconnected.append(client)
+        for client in disconnected:
+            self.clients.discard(client)
 
     async def _broadcast_loop(self):
         while not self._stop_event.is_set():
