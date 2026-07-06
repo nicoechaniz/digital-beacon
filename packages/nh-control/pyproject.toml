@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nh-control"
+version = "0.1.0"
+description = "Control and sensor mapping for NaturalHarmony"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = ["nh-core", "nh-model", "mido", "python-rtmidi"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
