@@ -1,5 +1,8 @@
 import { connectWS, sendControl } from './ws';
-import { setStatus, setRendererCaps, logStatus, renderPerformanceControls, updateF1Display, updateMasterDisplay, updatePartialDisplay } from './ui';
+import {
+  setStatus, setRendererCaps, logStatus, renderPerformanceControls,
+  updateF1Display, updateMasterDisplay, updatePartialDisplay, renderPresetBrowser
+} from './ui';
 import './style.css';
 
 interface RuntimeState {
@@ -9,6 +12,7 @@ interface RuntimeState {
   partialGains: Map<number, number>;
   muted: Set<number>;
   maxPartials: number;
+  currentField: any;
 }
 
 const state: RuntimeState = {
@@ -18,6 +22,7 @@ const state: RuntimeState = {
   partialGains: new Map(),
   muted: new Set(),
   maxPartials: 32,
+  currentField: null,
 };
 
 function getF1() {
@@ -43,6 +48,36 @@ function sendPartialGain(n: number, gain: number) {
   updatePartialDisplay(n, effectiveGain);
 }
 
+async function loadPreset(presetId: string) {
+  const res = await fetch(`/nh/v1/presets/${presetId}/load`, { method: 'POST' });
+  const data = await res.json();
+  if (data.ok) {
+    logStatus(`Loaded preset ${presetId} (f1=${data.f1})`);
+  } else {
+    logStatus(`Failed to load preset: ${data.detail || 'unknown'}`);
+  }
+}
+
+async function saveSnapshot() {
+  if (!state.currentField) return;
+  const payload = {
+    version: '1',
+    harmonic_field: state.currentField,
+    metadata: { name: 'snapshot-' + new Date().toISOString() },
+  };
+  const res = await fetch('/nh/v1/presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json();
+  if (data.ok) {
+    logStatus(`Saved snapshot to ${data.path}`);
+  } else {
+    logStatus(`Failed to save snapshot: ${data.detail || 'unknown'}`);
+  }
+}
+
 async function main() {
   setStatus('connecting');
   ws = await connectWS({
@@ -60,8 +95,10 @@ async function main() {
           sendPartialGain(n, state.partialGains.get(n) || 1.0);
         },
       });
+      renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
     },
     onField: (field) => {
+      state.currentField = field;
       state.baseF1 = field.f1 - state.f1Offset;
       updateF1Display(getF1());
     },

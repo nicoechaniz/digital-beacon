@@ -67,6 +67,22 @@ async def get_preset(preset_id: str):
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@app.post("/nh/v1/presets/{preset_id}/load")
+async def load_preset(preset_id: str):
+    path = PRESETS_DIR / f"{preset_id}.json"
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="preset not found")
+    try:
+        p = load(str(path))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if _runtime_server is None:
+        raise HTTPException(status_code=503, detail="runtime server not available")
+    _runtime_server.update_base_field(p.harmonic_field)
+    await _runtime_server._broadcast_field()
+    return {"ok": True, "preset_id": preset_id, "f1": p.harmonic_field.f1}
+
+
 @app.post("/nh/v1/presets")
 async def create_preset(data: Dict[str, Any]):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)

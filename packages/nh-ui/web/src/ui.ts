@@ -46,7 +46,6 @@ export function renderPerformanceControls(
   const container = document.getElementById('performance-controls')!;
   container.innerHTML = '';
 
-  // F1 section
   const f1Section = document.createElement('div');
   f1Section.className = 'control-group';
   f1Section.innerHTML = `
@@ -66,7 +65,6 @@ export function renderPerformanceControls(
   f1Slider.addEventListener('input', () => updateF1(parseFloat(f1Slider.value)));
   f1Fine.addEventListener('change', () => updateF1(parseFloat(f1Fine.value)));
 
-  // Master section
   const masterSection = document.createElement('div');
   masterSection.className = 'control-group';
   masterSection.innerHTML = `
@@ -77,14 +75,13 @@ export function renderPerformanceControls(
   const masterSlider = masterSection.querySelector('#master-slider') as HTMLInputElement;
   masterSlider.addEventListener('input', () => handlers.onMasterChange(parseFloat(masterSlider.value)));
 
-  // Partials section
   const partialsSection = document.createElement('div');
   partialsSection.className = 'partials-grid';
   partialsSection.innerHTML = '<h3>Partials</h3>';
   const grid = document.createElement('div');
   grid.className = 'grid';
 
-  const maxN = Math.min(state.maxPartials, 16); // show first 16 for UI compactness
+  const maxN = Math.min(state.maxPartials, 16);
   for (let n = 1; n <= maxN; n++) {
     const gain = state.partialGains.get(n) || 1.0;
     const muted = state.muted.has(n);
@@ -123,4 +120,47 @@ export function renderPerformanceControls(
       updatePartialDisplay(n, muted ? 0 : (state.partialGains.get(n) || 1.0));
     });
   });
+}
+
+interface PresetBrowserHandlers {
+  onLoad: (presetId: string) => void;
+  onSave: () => void;
+}
+
+export async function renderPresetBrowser(handlers: PresetBrowserHandlers) {
+  const container = document.getElementById('preset-browser')!;
+  container.innerHTML = '<h2>Presets</h2>';
+
+  const controls = document.createElement('div');
+  controls.className = 'preset-controls';
+  const loadBtn = document.createElement('button');
+  loadBtn.textContent = 'Load selected';
+  const saveBtn = document.createElement('button');
+  saveBtn.textContent = 'Save snapshot';
+  controls.appendChild(loadBtn);
+  controls.appendChild(saveBtn);
+  container.appendChild(controls);
+
+  const select = document.createElement('select');
+  select.id = 'preset-select';
+  select.innerHTML = '<option value="">-- select preset --</option>';
+  try {
+    const res = await fetch('/nh/v1/presets');
+    const presets = await res.json();
+    presets.forEach((p: any) => {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      opt.textContent = `${p.name} (${p.n_partials} partials, f1=${p.f1.toFixed(1)})`;
+      select.appendChild(opt);
+    });
+  } catch (e) {
+    logStatus('Failed to load preset list');
+  }
+  container.appendChild(select);
+
+  loadBtn.addEventListener('click', () => {
+    const id = (select as HTMLSelectElement).value;
+    if (id) handlers.onLoad(id);
+  });
+  saveBtn.addEventListener('click', () => handlers.onSave());
 }

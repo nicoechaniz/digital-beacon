@@ -1,6 +1,8 @@
 import pytest
+from pathlib import Path
 from fastapi.testclient import TestClient
 from nh_core import HarmonicField, Partial, RendererCapabilities
+from nh_presets import Preset, save
 from nh_runtime import BaseFieldServer
 from nh_ui.server import make_app
 
@@ -36,6 +38,26 @@ def test_list_presets(client):
 def test_get_preset_404(client):
     r = client.get("/nh/v1/presets/nonexistent")
     assert r.status_code == 404
+
+
+def test_load_preset(client, runtime):
+    # Create a minimal preset file
+    from nh_presets import Preset, save
+    from nh_core import HarmonicField, Partial
+    field = HarmonicField(f1=80.0)
+    field.partials[1] = Partial(n=1, gain=1.0)
+    p = Preset(harmonic_field=field)
+    preset_path = Path('/home/nicolas/Projects/digital-beacon/data/migrated_presets/test_load.json')
+    save(p, str(preset_path))
+    try:
+        r = client.post("/nh/v1/presets/test_load/load")
+        assert r.status_code == 200
+        data = r.json()
+        assert data["ok"] is True
+        assert data["f1"] == 80.0
+        assert runtime.base_field.f1 == 80.0
+    finally:
+        preset_path.unlink(missing_ok=True)
 
 
 def test_websocket_runtime(client):
