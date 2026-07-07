@@ -116,3 +116,45 @@ def test_websocket_panic_resets_model(client, runtime):
     assert runtime.model.f1_offset == 0.0
     assert runtime.model.master_gain == 0.0
     assert runtime.model.partial_gain_offsets == {}
+
+
+def test_launchpad_pad_events_map_to_partial_gain(client, runtime):
+    """Pad events from LaunchpadAdapter (via nh_ui) affect model partial gains (deterministic, no hw)."""
+    from nh_control import LaunchpadAdapter
+    adapter = LaunchpadAdapter(stride=16, split_mode=True)
+    # lower pad -> momentary pad_on n=1 -> gain 1
+    msg = type('M', (), {'type': 'note_on', 'note': 0, 'velocity': 127})()
+    ev = adapter.on_midi_message(msg)
+    assert ev.type == 'pad_on'
+    assert ev.value['n'] == 1
+    with client.websocket_connect("/nh/v1/ws") as ws:
+        ws.receive_json()  # caps
+        ws.receive_json()  # field
+        ws.send_json({"type": "control_event", "payload": ev.to_dict()})
+    assert runtime.model.partial_gain_offsets.get(1) == 1.0
+
+    # upper pad -> second press on toggle n=1 -> off , gain 0
+    msg2 = type('M', (), {'type': 'note_on', 'note': 64, 'velocity': 127})()
+    ev2 = adapter.on_midi_message(msg2)  # first upper press -> active true
+    ev2 = adapter.on_midi_message(msg2)  # second upper press -> active false
+    assert ev2.type == 'pad_toggle'
+    assert ev2.value['n'] == 1
+    assert ev2.value['active'] is False
+    with client.websocket_connect("/nh/v1/ws") as ws:
+        ws.receive_json()
+        ws.receive_json()
+        ws.send_json({"type": "control_event", "payload": ev2.to_dict()})
+    assert runtime.model.partial_gain_offsets.get(1) == 0.0
+
+
+def test_nh_ui_imports_launchpad_adapter():
+    """nh-ui can integrate nh_control.LaunchpadAdapter without hardware."""
+    from nh_control import LaunchpadAdapter
+    from nh_ui.server import broadcast_control_event, set_launchpad_control_handler
+    a = LaunchpadAdapter()
+    assert hasattr(a, 'led_for_event')
+    assert a.COLOR_ORANGE == 21
+    set_launchpad_control_handler(None)
+    broadcast_control_event({"type": "pad_toggle", "value": {"n": 3, "active": True}})
+    # no crash, no clients ok
+    assert True

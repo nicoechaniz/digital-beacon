@@ -24,7 +24,7 @@ interface RuntimeState {
 const state: RuntimeState = {
   baseF1: 65.0,
   f1Offset: 0.0,
-  masterGain: 1.0,
+  masterGain: 0.5,
   partialGains: new Map(),
   muted: new Set(),
   maxPartials: 32,
@@ -32,7 +32,7 @@ const state: RuntimeState = {
   renderer: 'python',
 };
 
-const launchpadState = { active: new Set<number>() };
+const launchpadState = { active: new Set<number>(), toggles: new Set<number>(), momentaries: new Set<number>() };
 const audioRenderer = new WebAudioRenderer();
 
 function getF1() {
@@ -140,6 +140,8 @@ async function main() {
           sendPartialGain(n, state.partialGains.get(n) || 1.0);
         },
       });
+      // Send initial master >0 so python/webaudio audio starts cleanly (model defaults to 0 for safety)
+      sendMaster(state.masterGain > 0 ? state.masterGain : 0.5);
       renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
       renderSensorPanel({
         onSimulateMuse: (value) => {
@@ -175,14 +177,29 @@ async function main() {
       }
     },
     onControl: (event) => {
+      const n = event.value?.n ?? 0;
       if (event.type === 'pad_on') {
-        const n = event.value?.n ?? 0;
         launchpadState.active.add(n);
+        launchpadState.momentaries.add(n);
         renderLaunchpadMirror(launchpadState);
         setTimeout(() => {
           launchpadState.active.delete(n);
+          launchpadState.momentaries.delete(n);
           renderLaunchpadMirror(launchpadState);
         }, 200);
+      } else if (event.type === 'pad_toggle') {
+        if (event.value?.active) {
+          launchpadState.active.add(n);
+          launchpadState.toggles.add(n);
+        } else {
+          launchpadState.active.delete(n);
+          launchpadState.toggles.delete(n);
+        }
+        renderLaunchpadMirror(launchpadState);
+      } else if (event.type === 'pad_off') {
+        launchpadState.active.delete(n);
+        launchpadState.momentaries.delete(n);
+        renderLaunchpadMirror(launchpadState);
       }
     },
     onError: (err) => {
@@ -228,11 +245,11 @@ async function main() {
   panic.addEventListener('click', () => {
     sendControl(ws, { type: 'panic', value: null });
     state.f1Offset = 0;
-    state.masterGain = 1;
+    state.masterGain = 0;
     state.partialGains.clear();
     state.muted.clear();
     updateF1Display(state.baseF1);
-    updateMasterDisplay(1);
+    updateMasterDisplay(0);
     logStatus('Panic sent');
   });
 }

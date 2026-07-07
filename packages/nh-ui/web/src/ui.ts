@@ -219,6 +219,8 @@ export async function renderPresetBrowser(handlers: PresetBrowserHandlers) {
 
 interface LaunchpadState {
   active: Set<number>;
+  toggles: Set<number>;
+  momentaries: Set<number>;
 }
 
 export function renderLaunchpadMirror(state: LaunchpadState) {
@@ -230,19 +232,25 @@ export function renderLaunchpadMirror(state: LaunchpadState) {
     grid.className = 'launchpad-grid';
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
-        const n = row * 8 + col;
+        const n = row * 8 + col + 1;  // 1-based to match adapter n and pad events
         const btn = document.createElement('div');
         btn.className = 'launchpad-pad';
         btn.dataset.n = String(n);
-        btn.textContent = String(n + 1);
+        btn.textContent = String(n);
         grid.appendChild(btn);
       }
     }
     container.appendChild(grid);
   }
   container.querySelectorAll('.launchpad-pad').forEach((pad) => {
-    const n = parseInt((pad as HTMLElement).dataset.n!);
-    pad.classList.toggle('active', state.active.has(n));
+    const el = pad as HTMLElement;
+    const n = parseInt(el.dataset.n!);
+    const isToggle = state.toggles && state.toggles.has(n);
+    const isMom = state.momentaries && state.momentaries.has(n);
+    const isActive = state.active.has(n) || isToggle || isMom;
+    el.classList.toggle('active', isActive);
+    el.classList.toggle('toggle', isToggle);
+    el.classList.toggle('momentary', isMom);
   });
 }
 

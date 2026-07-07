@@ -36,6 +36,9 @@ _current_renderer: str = "python"
 RendererCallback = Callable[[str], Union[None, Awaitable[None]]]
 _renderer_changed_callback: Optional[RendererCallback] = None
 
+# Optional callback for launchpad LED / external mirroring of controls (set by main)
+_launchpad_control_handler: Optional[Callable[[Dict[str, Any]], None]] = None
+
 
 def set_runtime_server(server: BaseFieldServer) -> None:
     global _runtime_server
@@ -45,6 +48,12 @@ def set_runtime_server(server: BaseFieldServer) -> None:
 def set_renderer_changed_callback(callback: Optional[RendererCallback]) -> None:
     global _renderer_changed_callback
     _renderer_changed_callback = callback
+
+
+def set_launchpad_control_handler(handler: Optional[Callable[[Dict[str, Any]], None]]) -> None:
+    """Register handler for control events (e.g. to drive Launchpad LED feedback from any source)."""
+    global _launchpad_control_handler
+    _launchpad_control_handler = handler
 
 
 def get_renderer_selection() -> str:
@@ -218,7 +227,28 @@ async def _handle_client_message(websocket, runtime: BaseFieldServer, msg: Trans
             else:
                 await websocket.send_text(TransportMessage("error", {"code": "invalid_renderer", "message": f"renderer {selected} not available"}).to_json())
             return
+        # Map launchpad pad events (from physical or relayed) to partial_gain so they affect audio
+        if etype in ("pad_on", "pad_off", "pad_toggle"):
+            val = msg.payload.get("value") or {}
+            n = int(val.get("n", 0) or 0)
+            if n > 0:
+                if etype == "pad_toggle":
+                    g = 1.0 if val.get("active") else 0.0
+                elif etype == "pad_on":
+                    g = 1.0
+                else:
+                    g = 0.0
+                runtime.model.apply_control({"type": "partial_gain", "value": {"n": n, "gain": g}})
         runtime.model.apply_control(msg.payload)
+        # Drive launchpad handler (for LED feedback from UI-initiated controls like panic)
+        if _launchpad_control_handler is not None:
+            try:
+                _launchpad_control_handler(msg.payload)
+            except Exception:
+                pass
+        # Broadcast original control (esp pads/panic) so UI mirrors update from any source
+        if etype in ("pad_on", "pad_off", "pad_toggle", "panic"):
+            broadcast_control_event(msg.payload)
     elif msg.type == "sensor_event":
         runtime.model.apply_sensor(msg.payload, runtime.sensor_mapping)
     elif msg.type == "ping":
@@ -265,6 +295,39 @@ def _stop_ui_broadcast_loop():
     if _ui_broadcast_task is not None and not _ui_broadcast_task.done():
         _ui_broadcast_task.cancel()
     _ui_broadcast_task = None
+
+
+def broadcast_control_event(payload: Dict[str, Any]) -> None:
+    """Broadcast a control_event (e.g. pad_toggle from launchpad) to all UI WS clients for mirrors.
+
+    Safe to call from any thread (uses threadsafe scheduling when needed).
+    """
+    if not _ui_clients:
+        return
+    msg = TransportMessage("control_event", payload)
+    payload_json = msg.to_json()
+    disconnected = []
+    for client in list(_ui_clients):
+        try:
+            try:
+                # prefer create_task if in event loop thread
+                asyncio.create_task(client.send_text(payload_json))
+            except RuntimeError:
+                # called from other thread: schedule on loop if available
+                loop = None
+                try:
+                    loop = asyncio.get_running_loop()
+                except RuntimeError:
+                    pass
+                if loop:
+                    loop.call_soon_threadsafe(lambda c=client, p=payload_json: asyncio.create_task(c.send_text(p)))
+                else:
+                    # fallback best effort
+                    client.send_text(payload_json)  # may fail, ignore
+        except Exception:
+            disconnected.append(client)
+    for client in disconnected:
+        _ui_clients.discard(client)
 
 
 def make_app(runtime_server: Optional[BaseFieldServer] = None) -> FastAPI:

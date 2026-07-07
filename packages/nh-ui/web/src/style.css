@@ -218,6 +218,16 @@ section h2 {
   color: #000;
 }
 
+.launchpad-pad.toggle {
+  background: #f90;
+  color: #000;
+}
+
+.launchpad-pad.momentary {
+  background: #0f0;
+  color: #000;
+}
+
 .sensor-group {
   display: grid;
   grid-template-columns: 120px 1fr 100px;
