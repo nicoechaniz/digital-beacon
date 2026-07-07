@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "postbuild": "cp /home/nicolas/Projects/digital-beacon/packages/nh-renderers/src/nh_renderers/web/nh-renderer.worklet.js ../src/nh_ui/static/assets/"
+    "postbuild": "cp ../../nh-renderers/src/nh_renderers/web/nh-renderer.worklet.js ../src/nh_ui/static/assets/"
   },
   "devDependencies": {
     "typescript": "~6.0.2",

@@ -58,7 +58,12 @@ class PythonSounddeviceRenderer(Renderer):
             partial for n, partial in field.partials.items()
             if partial.gain > 0.0
         ]
-        norm = 1.0 / max(1.0, np.sqrt(len(active_partials)))
+        # Peak-safe normalization: the worst-case (fully coherent) peak of a sum
+        # of sines equals the sum of their amplitudes. Dividing by that sum (when
+        # it exceeds unity) guarantees the output can never exceed full scale, so
+        # even a high-gain preset with the master raised will not saturate.
+        total_gain = sum(partial.gain for partial in active_partials)
+        norm = 1.0 / max(1.0, total_gain)
         for partial in active_partials:
             freq = base_freq * partial.n
             phase_rad = np.deg2rad(partial.phase)
@@ -72,10 +77,9 @@ class PythonSounddeviceRenderer(Renderer):
         self._phase += 2.0 * np.pi * base_freq * frames / self.sr
         self._phase %= 2.0 * np.pi
 
-        # Soft clip
-        peak = np.max(np.abs(out))
-        if peak > 1.0:
-            out = np.tanh(out)
+        # Defensive hard limit. With peak-safe normalization above the signal is
+        # already bounded to [-1, 1]; this only guards against numerical edge cases.
+        np.clip(out, -1.0, 1.0, out=out)
         outdata[:] = out
 
     @property

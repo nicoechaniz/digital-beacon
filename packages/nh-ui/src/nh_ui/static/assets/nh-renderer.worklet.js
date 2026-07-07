@@ -28,7 +28,12 @@ class NHRendererProcessor extends AudioWorkletProcessor {
       ? this.field.partials
       : Object.values(this.field.partials || {});
     const activePartials = partials.filter(p => p.gain > 0);
-    const norm = 1.0 / Math.max(1.0, Math.sqrt(activePartials.length));
+    // Peak-safe normalization (mirrors the Python renderer): the worst-case
+    // coherent peak of a sum of sines is the sum of their amplitudes. Dividing
+    // by that sum when it exceeds unity guarantees the output never saturates,
+    // even for a high-gain preset with the master raised.
+    const totalGain = activePartials.reduce((sum, p) => sum + p.gain, 0);
+    const norm = 1.0 / Math.max(1.0, totalGain);
     for (const partial of activePartials) {
       const freq = f1 * partial.n;
       const pan = partial.pan || 0.0;
@@ -51,12 +56,9 @@ class NHRendererProcessor extends AudioWorkletProcessor {
     const outL = output[0];
     const outR = output[1] || outL;
     for (let i = 0; i < frames; i++) {
-      let l = left[i];
-      let r = right[i];
-      if (Math.abs(l) > 1.0) l = Math.tanh(l);
-      if (Math.abs(r) > 1.0) r = Math.tanh(r);
-      outL[i] = l;
-      outR[i] = r;
+      // Defensive hard limit; the peak-safe normalization already bounds this.
+      outL[i] = Math.max(-1.0, Math.min(1.0, left[i]));
+      outR[i] = Math.max(-1.0, Math.min(1.0, right[i]));
     }
     return true;
   }

@@ -72,3 +72,35 @@ def test_panic_resets():
     state.apply_control({"type": "panic"})
     assert state.master_gain == 0.0
     assert state.f1_offset == 0.0
+
+
+def test_apply_control_pad_on_off():
+    state = ModelState()
+    state.apply_control({"type": "pad_on", "value": {"n": 3, "vel": 127}})
+    assert state.partial_gain_offsets[3] == 1.0
+    state.apply_control({"type": "pad_off", "value": {"n": 3, "vel": 0}})
+    assert state.partial_gain_offsets[3] == 0.0
+
+
+def test_apply_control_pad_toggle():
+    state = ModelState()
+    state.apply_control({"type": "pad_toggle", "value": {"n": 5, "active": True}})
+    assert state.partial_gain_offsets[5] == 1.0
+    state.apply_control({"type": "pad_toggle", "value": {"n": 5, "active": False}})
+    assert state.partial_gain_offsets[5] == 0.0
+
+
+def test_apply_control_pad_ignores_missing_n():
+    state = ModelState()
+    state.apply_control({"type": "pad_on", "value": {"n": 0}})
+    assert state.partial_gain_offsets == {}
+
+
+def test_snapshot_master_zero_is_silent():
+    """Default master (0) zeroes every partial gain, so the render is silent."""
+    field = HarmonicField(f1=65.0)
+    field.partials[1] = Partial(n=1, gain=1.0)
+    field.partials[2] = Partial(n=2, gain=0.7)
+    state = ModelState(base_field=field)  # master defaults to 0
+    snapshot = state.to_snapshot()
+    assert all(p.gain == 0.0 for p in snapshot.partials.values())

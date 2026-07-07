@@ -24,7 +24,7 @@ interface RuntimeState {
 const state: RuntimeState = {
   baseF1: 65.0,
   f1Offset: 0.0,
-  masterGain: 0.5,
+  masterGain: 0.0, // safety: silent until the performer raises the master
   partialGains: new Map(),
   muted: new Set(),
   maxPartials: 32,
@@ -140,8 +140,9 @@ async function main() {
           sendPartialGain(n, state.partialGains.get(n) || 1.0);
         },
       });
-      // Send initial master >0 so python/webaudio audio starts cleanly (model defaults to 0 for safety)
-      sendMaster(state.masterGain > 0 ? state.masterGain : 0.5);
+      // Reset master to 0 on (re)connect so audio never starts loud; the model
+      // default is also 0. The performer must explicitly raise the master.
+      sendMaster(0);
       renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
       renderSensorPanel({
         onSimulateMuse: (value) => {
@@ -248,6 +249,13 @@ async function main() {
     state.masterGain = 0;
     state.partialGains.clear();
     state.muted.clear();
+    // Reflect the reset in the controls so the sliders match the silent state.
+    const masterSlider = document.getElementById('master-slider') as HTMLInputElement | null;
+    if (masterSlider) masterSlider.value = '0';
+    const f1Slider = document.getElementById('f1-slider') as HTMLInputElement | null;
+    if (f1Slider) f1Slider.value = '0';
+    const f1Fine = document.getElementById('f1-fine') as HTMLInputElement | null;
+    if (f1Fine) f1Fine.value = '0';
     updateF1Display(state.baseF1);
     updateMasterDisplay(0);
     logStatus('Panic sent');

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 from nh_core import HarmonicField, Partial, RendererCapabilities
 from nh_presets import Preset, save
 from nh_runtime import BaseFieldServer
-from nh_ui.server import make_app
+from nh_ui.server import PRESETS_DIR, make_app
 
 
 @pytest.fixture
@@ -47,7 +47,8 @@ def test_load_preset(client, runtime):
     field = HarmonicField(f1=80.0)
     field.partials[1] = Partial(n=1, gain=1.0)
     p = Preset(harmonic_field=field)
-    preset_path = Path('/home/nicolas/Projects/digital-beacon/data/migrated_presets/test_load.json')
+    PRESETS_DIR.mkdir(parents=True, exist_ok=True)
+    preset_path = PRESETS_DIR / 'test_load.json'
     save(p, str(preset_path))
     try:
         r = client.post("/nh/v1/presets/test_load/load")
@@ -158,3 +159,36 @@ def test_nh_ui_imports_launchpad_adapter():
     broadcast_control_event({"type": "pad_toggle", "value": {"n": 3, "active": True}})
     # no crash, no clients ok
     assert True
+
+
+def test_connect_does_not_raise_master(client, runtime):
+    """Connecting must never auto-raise the master; audio starts silent for safety."""
+    assert runtime.model.master_gain == 0.0
+    with client.websocket_connect("/nh/v1/ws") as ws:
+        ws.receive_json()  # capabilities
+        ws.receive_json()  # base_field
+    assert runtime.model.master_gain == 0.0
+
+
+def test_broadcast_control_event_reaches_client(client):
+    """A control_event broadcast (e.g. from the physical launchpad) mirrors to UI clients.
+
+    Exercises the thread-safe feedback loop: the broadcast is issued from the test
+    thread and must be scheduled onto the UI loop captured at connect time.
+    """
+    from nh_ui.server import broadcast_control_event
+    with client.websocket_connect("/nh/v1/ws") as ws:
+        ws.receive_json()  # capabilities
+        ws.receive_json()  # base_field
+        broadcast_control_event(
+            {"source": "launchpad", "type": "pad_toggle", "value": {"n": 5, "active": True}}
+        )
+        received = None
+        for _ in range(30):  # base_field ticks are interleaved; find our event
+            msg = ws.receive_json()
+            if msg["type"] == "control_event":
+                received = msg
+                break
+    assert received is not None, "control_event was not mirrored to the client"
+    assert received["payload"]["type"] == "pad_toggle"
+    assert received["payload"]["value"]["n"] == 5

@@ -17,10 +17,10 @@ from playwright.sync_api import sync_playwright
 
 from nh_core import HarmonicField, Partial
 from nh_presets import Preset, save
+from nh_ui.server import PRESETS_DIR
 
 
 PYTHON = sys.executable
-PRESETS_DIR = Path("/home/nicolas/Projects/digital-beacon/data/migrated_presets")
 
 
 def _free_port() -> int:
@@ -185,6 +185,16 @@ def test_load_preset_change_f1_and_panic(server_url: str, preset_file: str) -> N
         page.wait_for_selector("#status-log div", timeout=5_000)
         log_text = page.locator("#status-log").text_content()
         assert "Panic" in log_text or "panic" in log_text.lower()
+
+
+def test_launchpad_grid_shows_64_pads(server_url: str) -> None:
+    """The launchpad mirror renders the full 8x8 (64-pad) grid after connect."""
+    for page in _page(server_url):
+        page.goto(server_url)
+        page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.wait_for_selector("#launchpad-mirror .launchpad-pad", timeout=10_000)
+        count = page.locator("#launchpad-mirror .launchpad-pad").count()
+        assert count == 64
 
 
 def test_presets_section_loads(server_url: str) -> None:

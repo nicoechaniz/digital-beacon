@@ -23,7 +23,14 @@ class ModelState:
         self.base_field = copy.deepcopy(base_field)
 
     def apply_control(self, event: Dict[str, Any]) -> None:
-        """Apply a normalized control event."""
+        """Apply a normalized control event.
+
+        Pad events (``pad_on``/``pad_off``/``pad_toggle``) are generic
+        "gate harmonic n" controls emitted by e.g. the Launchpad adapter. They
+        are interpreted here so that every entry point (in-process web host and
+        the runtime WebSocket used by the physical controller) maps them to the
+        same partial-gain state.
+        """
         etype = event.get("type")
         value = event.get("value", 0.0)
         if etype == "master":
@@ -33,6 +40,17 @@ class ModelState:
         elif etype == "partial_gain":
             n = int(value.get("n"))
             self.partial_gain_offsets[n] = float(value.get("gain", 1.0))
+        elif etype in ("pad_on", "pad_off", "pad_toggle"):
+            v = value if isinstance(value, dict) else {}
+            n = int(v.get("n", 0) or 0)
+            if n > 0:
+                if etype == "pad_toggle":
+                    gain = 1.0 if v.get("active") else 0.0
+                elif etype == "pad_on":
+                    gain = 1.0
+                else:  # pad_off
+                    gain = 0.0
+                self.partial_gain_offsets[n] = gain
         elif etype == "spatial_rotation":
             self.spatial_rotation = float(value)
         elif etype == "residual_mix":

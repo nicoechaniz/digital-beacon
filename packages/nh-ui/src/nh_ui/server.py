@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Union
 
@@ -17,8 +18,12 @@ from nh_runtime import BaseFieldServer
 from nh_runtime.transport import TransportMessage
 
 STATIC_DIR = Path(__file__).parent / "static"
-PRESETS_DIR = Path("/home/nicolas/Projects/digital-beacon/data/migrated_presets")
-UPLOAD_DIR = Path("/home/nicolas/Projects/digital-beacon/data/uploads")
+# Repo layout: <root>/packages/nh-ui/src/nh_ui/server.py -> parents[4] == <root>.
+# Paths are overridable via env so the host is portable across checkouts.
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+_DATA_DIR = Path(os.getenv("NH_DATA_DIR", str(_REPO_ROOT / "data")))
+PRESETS_DIR = Path(os.getenv("NH_PRESETS_DIR", str(_DATA_DIR / "migrated_presets")))
+UPLOAD_DIR = Path(os.getenv("NH_UPLOAD_DIR", str(_DATA_DIR / "uploads")))
 
 app = FastAPI(title="NaturalHarmony UI")
 app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets")
@@ -39,11 +44,21 @@ _renderer_changed_callback: Optional[RendererCallback] = None
 # Optional callback for launchpad LED / external mirroring of controls (set by main)
 _launchpad_control_handler: Optional[Callable[[Dict[str, Any]], None]] = None
 
-# Event loop running the UI server (captured on first use for thread-safe scheduling)
+# Event loop running the UI server. Captured so control-event broadcasts issued
+# from other threads (e.g. the Launchpad MIDI reader) can be scheduled safely.
 _ui_loop: Optional[asyncio.AbstractEventLoop] = None
 
-def _set_ui_loop() -> None:
+def set_ui_loop(loop: Optional[asyncio.AbstractEventLoop] = None) -> None:
+    """Register the event loop that runs the UI server.
+
+    ``main`` calls this explicitly so off-loop threads have a reliable target for
+    thread-safe scheduling. When called without an argument it captures the
+    currently running loop, which is how the WebSocket endpoint and tests bind it.
+    """
     global _ui_loop
+    if loop is not None:
+        _ui_loop = loop
+        return
     try:
         _ui_loop = asyncio.get_running_loop()
     except RuntimeError:
@@ -181,6 +196,8 @@ async def set_renderer(data: Dict[str, Any]):
 @app.websocket("/nh/v1/ws")
 async def websocket_endpoint(websocket: WebSocket):
     await websocket.accept()
+    # Bind the UI loop so cross-thread control broadcasts land on this loop.
+    set_ui_loop()
     if _runtime_server is None:
         await websocket.send_json({"type": "error", "payload": {"code": "runtime_unavailable", "message": "runtime server not set"}})
         await websocket.close()
@@ -237,18 +254,8 @@ async def _handle_client_message(websocket, runtime: BaseFieldServer, msg: Trans
             else:
                 await websocket.send_text(TransportMessage("error", {"code": "invalid_renderer", "message": f"renderer {selected} not available"}).to_json())
             return
-        # Map launchpad pad events (from physical or relayed) to partial_gain so they affect audio
-        if etype in ("pad_on", "pad_off", "pad_toggle"):
-            val = msg.payload.get("value") or {}
-            n = int(val.get("n", 0) or 0)
-            if n > 0:
-                if etype == "pad_toggle":
-                    g = 1.0 if val.get("active") else 0.0
-                elif etype == "pad_on":
-                    g = 1.0
-                else:
-                    g = 0.0
-                runtime.model.apply_control({"type": "partial_gain", "value": {"n": n, "gain": g}})
+        # Pad events (pad_on/pad_off/pad_toggle) map to partial gains inside the
+        # model, so physical-controller and web-originated controls behave the same.
         runtime.model.apply_control(msg.payload)
         # Drive launchpad handler (for LED feedback from UI-initiated controls like panic)
         if _launchpad_control_handler is not None:
@@ -312,7 +319,7 @@ def broadcast_control_event(payload: Dict[str, Any]) -> None:
 
     Safe to call from any thread (uses threadsafe scheduling when needed).
     """
-    _set_ui_loop()
+    set_ui_loop()
     if not _ui_clients:
         return
     msg = TransportMessage("control_event", payload)
