@@ -109,6 +109,13 @@ class ModelState:
             partial.gain *= self.master_gain * self.partial_gain_offsets.get(n, 1.0)
             if partial.spatial and "az" in partial.spatial:
                 partial.spatial["az"] = (partial.spatial["az"] + self.spatial_rotation) % 360.0
+        field.modulations = {
+            "master_gain": self.master_gain,
+            "f1_offset": self.f1_offset,
+            "partial_gain_offsets": dict(self.partial_gain_offsets),
+            "spatial_rotation": self.spatial_rotation,
+            "residual_mix": self.residual_mix,
+        }
         return field
 
     def from_snapshot(self, snapshot: HarmonicField) -> None:

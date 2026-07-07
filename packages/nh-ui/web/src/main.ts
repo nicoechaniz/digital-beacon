@@ -226,6 +226,24 @@ async function main() {
       updateF1Display(getF1());
       renderFieldSummary(field);
 
+      // Sync master slider from the server's modulations
+      const mods = field.modulations || {};
+      if (typeof mods.master_gain === 'number') {
+        state.masterGain = mods.master_gain;
+        const masterSlider = document.getElementById('master-slider') as HTMLInputElement | null;
+        if (masterSlider && masterSlider.value !== String(mods.master_gain)) {
+          masterSlider.value = String(mods.master_gain);
+        }
+        updateMasterDisplay(mods.master_gain);
+      }
+      if (typeof mods.f1_offset === 'number') {
+        state.f1Offset = mods.f1_offset;
+        const f1Slider = document.getElementById('f1-slider') as HTMLInputElement | null;
+        if (f1Slider && f1Slider.value !== String(mods.f1_offset)) {
+          f1Slider.value = String(mods.f1_offset);
+        }
+      }
+
       const partials = field.partials || {};
       const values = Array.isArray(partials) ? partials : Object.values(partials);
       for (const p of values) {
