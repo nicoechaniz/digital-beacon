@@ -1,0 +1,51 @@
+{
+  "version": "1",
+  "harmonic_field": {
+    "f1": 65.0,
+    "partials": {
+      "1": {
+        "n": 1,
+        "freq": null,
+        "gain": 1.0,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 0,
+          "dist": 2.0,
+          "q": 0.5,
+          "solo": false
+        },
+        "envelope": null
+      }
+    },
+    "residual": {
+      "kind": "none",
+      "audio_path": null,
+      "params": null
+    },
+    "descriptors": null,
+    "modulations": null,
+    "transport": {
+      "clock": 0.0,
+      "playing": true,
+      "seeking": false,
+      "loop_start": null,
+      "loop_end": null
+    }
+  },
+  "renderer_capabilities_required": {
+    "max_partials": 1,
+    "supports_phase": true,
+    "supports_spatial": true,
+    "spatial_mode": "ambisonic",
+    "supports_residual": false,
+    "max_tines": 0,
+    "sample_rate": null,
+    "block_size": null
+  },
+  "metadata": {
+    "source": "beacon_spatial",
+    "original_path": "/home/nicolas/Projects/beacon-spatial/configs/test_sensor.json"
+  }
+}

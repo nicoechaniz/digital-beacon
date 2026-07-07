@@ -1,0 +1,162 @@
+{
+  "version": "1",
+  "harmonic_field": {
+    "f1": 65.0,
+    "partials": {
+      "1": {
+        "n": 1,
+        "freq": 40.4,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": -0.09,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 0.0
+        }
+      },
+      "2": {
+        "n": 2,
+        "freq": 80.8,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.15,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 1.0
+        }
+      },
+      "3": {
+        "n": 3,
+        "freq": 121.19999999999999,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": -0.39,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 1.0
+        }
+      },
+      "4": {
+        "n": 4,
+        "freq": 161.6,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.61,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 1.0
+        }
+      },
+      "5": {
+        "n": 5,
+        "freq": 202.0,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": -0.65,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 1.0
+        }
+      },
+      "6": {
+        "n": 6,
+        "freq": 242.39999999999998,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.71,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 1.0
+        }
+      },
+      "10": {
+        "n": 10,
+        "freq": 404.0,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 0.0
+        }
+      },
+      "12": {
+        "n": 12,
+        "freq": 484.79999999999995,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 0.0
+        }
+      },
+      "20": {
+        "n": 20,
+        "freq": 808.0,
+        "gain": 0.6,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": null,
+        "envelope": {
+          "attack_s": 0.01,
+          "release_s": 0.15,
+          "shape": 0.0
+        }
+      }
+    },
+    "residual": {
+      "kind": "none",
+      "audio_path": null,
+      "params": null
+    },
+    "descriptors": null,
+    "modulations": null,
+    "transport": {
+      "clock": 0.0,
+      "playing": true,
+      "seeking": false,
+      "loop_start": null,
+      "loop_end": null
+    }
+  },
+  "renderer_capabilities_required": {
+    "max_partials": 20,
+    "supports_phase": true,
+    "supports_spatial": true,
+    "spatial_mode": "ambisonic",
+    "supports_residual": false,
+    "max_tines": 0,
+    "sample_rate": null,
+    "block_size": null
+  },
+  "metadata": {
+    "source": "digital_beacon_v2",
+    "original_path": "/home/nicolas/Projects/digital-beacon/configs/sesion 24 jun 2026 - shaper pre-save.json"
+  }
+}

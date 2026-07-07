@@ -1,0 +1,231 @@
+{
+  "version": "1",
+  "harmonic_field": {
+    "f1": 65.0,
+    "partials": {
+      "1": {
+        "n": 1,
+        "freq": null,
+        "gain": 2.45,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 2,
+          "dist": 0.3,
+          "q": 0.042,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "2": {
+        "n": 2,
+        "freq": null,
+        "gain": 0.85,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -10,
+          "dist": 0.5,
+          "q": 0.289,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "3": {
+        "n": 3,
+        "freq": null,
+        "gain": 1,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 12,
+          "dist": 3.7,
+          "q": 0.498,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "4": {
+        "n": 4,
+        "freq": null,
+        "gain": 2.25,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -30,
+          "dist": 6.9,
+          "q": 0.892,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "5": {
+        "n": 5,
+        "freq": null,
+        "gain": 1.1,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 131,
+          "dist": 0.8,
+          "q": 0.126,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "6": {
+        "n": 6,
+        "freq": null,
+        "gain": 0.8,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -164,
+          "dist": 1.7,
+          "q": 0.722,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "7": {
+        "n": 7,
+        "freq": null,
+        "gain": 3,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -61,
+          "dist": 8.2,
+          "q": 0.122,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "8": {
+        "n": 8,
+        "freq": null,
+        "gain": 1.1,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 65,
+          "dist": 3.8,
+          "q": 0.093,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "9": {
+        "n": 9,
+        "freq": null,
+        "gain": 0.95,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -86,
+          "dist": 6.8,
+          "q": 0.517,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "10": {
+        "n": 10,
+        "freq": null,
+        "gain": 1.35,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 82,
+          "dist": 4.4,
+          "q": 0.161,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "11": {
+        "n": 11,
+        "freq": null,
+        "gain": 2.3,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -92,
+          "dist": 8.6,
+          "q": 0.224,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "12": {
+        "n": 12,
+        "freq": null,
+        "gain": 1.9,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": 95,
+          "dist": 5.7,
+          "q": 0.286,
+          "solo": false
+        },
+        "envelope": null
+      },
+      "13": {
+        "n": 13,
+        "freq": null,
+        "gain": 0.65,
+        "phase": 0.0,
+        "width": 0.0,
+        "pan": 0.0,
+        "spatial": {
+          "az": -12,
+          "dist": 4.4,
+          "q": 0.5,
+          "solo": false
+        },
+        "envelope": null
+      }
+    },
+    "residual": {
+      "kind": "none",
+      "audio_path": null,
+      "params": null
+    },
+    "descriptors": null,
+    "modulations": null,
+    "transport": {
+      "clock": 0.0,
+      "playing": true,
+      "seeking": false,
+      "loop_start": null,
+      "loop_end": null
+    }
+  },
+  "renderer_capabilities_required": {
+    "max_partials": 13,
+    "supports_phase": true,
+    "supports_spatial": true,
+    "spatial_mode": "ambisonic",
+    "supports_residual": false,
+    "max_tines": 0,
+    "sample_rate": null,
+    "block_size": null
+  },
+  "metadata": {
+    "source": "beacon_spatial",
+    "original_path": "/home/nicolas/Projects/beacon-spatial/configs/CIMA 16 jun 2026.json"
+  }
+}
