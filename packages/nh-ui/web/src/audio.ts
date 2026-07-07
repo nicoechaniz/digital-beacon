@@ -81,6 +81,11 @@ export class WebAudioRenderer {
     if (this.node && this.node.port) {
       this.node.port.postMessage({ type: 'field', payload: field });
     }
+    // If the context exists but is suspended (e.g. after a policy block), try to
+    // resume on any user-driven render call (slider move, preset load, etc.).
+    if (this.ctx && this.ctx.state === 'suspended') {
+      this.ctx.resume().catch(() => {});
+    }
   }
 
   get running(): boolean {

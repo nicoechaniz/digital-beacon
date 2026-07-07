@@ -98,6 +98,9 @@ async function setRenderer(renderer: 'python' | 'webaudio') {
   if (data.ok) {
     state.renderer = renderer;
     setRendererStatus(renderer, true);
+    if (renderer === 'webaudio' && state.currentField) {
+      audioRenderer.render(state.currentField);
+    }
     logStatus(`Renderer switched to ${renderer}`);
   } else {
     logStatus(`Failed to switch renderer: ${data.detail || 'unknown'}`);
