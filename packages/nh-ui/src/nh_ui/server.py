@@ -157,7 +157,7 @@ async def create_preset(data: Dict[str, Any]):
         errors = validate(p)
         if errors:
             raise HTTPException(status_code=400, detail={"errors": errors})
-        name = p.harmonic_field.metadata.get("name", "untitled")
+        name = p.metadata.get("name", "untitled")
         path = UPLOAD_DIR / f"{name}.json"
         save(p, str(path))
         return {"ok": True, "path": str(path)}

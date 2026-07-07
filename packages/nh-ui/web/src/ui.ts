@@ -65,8 +65,24 @@ export function renderRendererSelector(
 export function logStatus(message: string) {
   const el = document.getElementById('status-log')!;
   const line = document.createElement('div');
-  line.textContent = message;
+  const time = new Date().toLocaleTimeString();
+  line.textContent = `[${time}] ${message}`;
   el.prepend(line);
+}
+
+export function initTabs() {
+  const buttons = document.querySelectorAll('.tab-btn');
+  const panels = document.querySelectorAll('.tab-panel');
+  buttons.forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const tab = (btn as HTMLElement).dataset.tab;
+      buttons.forEach((b) => b.classList.remove('active'));
+      panels.forEach((p) => p.classList.remove('active'));
+      btn.classList.add('active');
+      const panel = document.getElementById(tab!);
+      if (panel) panel.classList.add('active');
+    });
+  });
 }
 
 export function updateF1Display(f1: number) {
@@ -89,10 +105,12 @@ interface PerformanceHandlers {
   onMasterChange: (gain: number) => void;
   onPartialGainChange: (n: number, gain: number) => void;
   onMuteChange: (n: number, muted: boolean) => void;
+  onSpatialRotationChange?: (deg: number) => void;
+  onResidualMixChange?: (mix: number) => void;
 }
 
 export function renderPerformanceControls(
-  state: { baseF1: number; masterGain: number; partialGains: Map<number, number>; muted: Set<number>; maxPartials: number },
+  state: { baseF1: number; masterGain: number; partialGains: Map<number, number>; muted: Set<number>; maxPartials: number; spatialRotation?: number; residualMix?: number },
   handlers: PerformanceHandlers
 ) {
   const container = document.getElementById('performance-controls')!;
@@ -126,6 +144,36 @@ export function renderPerformanceControls(
   container.appendChild(masterSection);
   const masterSlider = masterSection.querySelector('#master-slider') as HTMLInputElement;
   masterSlider.addEventListener('input', () => handlers.onMasterChange(parseFloat(masterSlider.value)));
+
+  const spatialSection = document.createElement('div');
+  spatialSection.className = 'control-group';
+  spatialSection.innerHTML = `
+    <label>Spatial <span id="spatial-rotation-display">${(state.spatialRotation || 0).toFixed(0)}°</span></label>
+    <input type="range" id="spatial-rotation" min="0" max="360" step="1" value="${state.spatialRotation || 0}" />
+  `;
+  container.appendChild(spatialSection);
+  const spatialSlider = spatialSection.querySelector('#spatial-rotation') as HTMLInputElement;
+  spatialSlider.addEventListener('input', () => {
+    const val = parseFloat(spatialSlider.value);
+    const display = document.getElementById('spatial-rotation-display') as HTMLSpanElement;
+    if (display) display.textContent = val.toFixed(0) + '°';
+    if (handlers.onSpatialRotationChange) handlers.onSpatialRotationChange(val);
+  });
+
+  const residualSection = document.createElement('div');
+  residualSection.className = 'control-group';
+  residualSection.innerHTML = `
+    <label>Residual <span id="residual-mix-display">${(state.residualMix ?? 1).toFixed(2)}</span></label>
+    <input type="range" id="residual-mix" min="0" max="2" step="0.01" value="${state.residualMix ?? 1}" />
+  `;
+  container.appendChild(residualSection);
+  const residualSlider = residualSection.querySelector('#residual-mix') as HTMLInputElement;
+  residualSlider.addEventListener('input', () => {
+    const val = parseFloat(residualSlider.value);
+    const display = document.getElementById('residual-mix-display') as HTMLSpanElement;
+    if (display) display.textContent = val.toFixed(2);
+    if (handlers.onResidualMixChange) handlers.onResidualMixChange(val);
+  });
 
   const partialsSection = document.createElement('div');
   partialsSection.className = 'partials-grid';
@@ -325,6 +373,65 @@ export function updateIMUYaw(yaw: number) {
 export function updateIMUPitch(pitch: number) {
   const el = document.getElementById('imu-pitch-display') as HTMLSpanElement | null;
   if (el) el.textContent = pitch.toFixed(0) + '°';
+}
+
+interface UploadHandlers {
+  onPresetUpload: (file: File) => void;
+  onWavAnalyze: (file: File) => void;
+}
+
+export function renderUploadPanels(handlers: UploadHandlers) {
+  const container = document.getElementById('preset-upload')!;
+  container.innerHTML = '<h3>Upload preset</h3>';
+
+  const presetInput = document.createElement('input');
+  presetInput.type = 'file';
+  presetInput.accept = '.json';
+  const presetBtn = document.createElement('button');
+  presetBtn.textContent = 'Upload preset';
+  presetBtn.disabled = true;
+  presetInput.addEventListener('change', () => {
+    presetBtn.disabled = !presetInput.files?.length;
+  });
+  presetBtn.addEventListener('click', () => {
+    if (presetInput.files?.[0]) handlers.onPresetUpload(presetInput.files[0]);
+  });
+  container.appendChild(presetInput);
+  container.appendChild(presetBtn);
+
+  const analysis = document.getElementById('analysis-panel')!;
+  analysis.innerHTML = '<h3>Analyze WAV</h3>';
+  const wavInput = document.createElement('input');
+  wavInput.type = 'file';
+  wavInput.accept = 'audio/wav,.wav';
+  const wavBtn = document.createElement('button');
+  wavBtn.textContent = 'Analyze';
+  wavBtn.disabled = true;
+  wavInput.addEventListener('change', () => {
+    wavBtn.disabled = !wavInput.files?.length;
+  });
+  wavBtn.addEventListener('click', () => {
+    if (wavInput.files?.[0]) handlers.onWavAnalyze(wavInput.files[0]);
+  });
+  analysis.appendChild(wavInput);
+  analysis.appendChild(wavBtn);
+}
+
+export function renderFieldSummary(field: any) {
+  let el = document.getElementById('field-summary') as HTMLDivElement | null;
+  if (!el) {
+    const performance = document.getElementById('performance')!;
+    el = document.createElement('div');
+    el.id = 'field-summary';
+    el.className = 'field-summary';
+    performance.insertBefore(el, performance.firstChild);
+  }
+  const partials = field?.partials || {};
+  const active = Object.values(partials).filter((p: any) => (p.gain || 0) > 0).length;
+  el.innerHTML = `
+    <span><strong>f1:</strong> ${(field?.f1 || 0).toFixed(2)} Hz</span>
+    <span><strong>partials:</strong> ${active} / ${Object.keys(partials).length}</span>
+  `;
 }
 
 interface SensorSafetyHandlers {

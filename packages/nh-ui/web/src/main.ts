@@ -6,7 +6,8 @@ import {
   setStatus, setRendererCaps, setRendererStatus, setAudioStatus, logStatus,
   renderPerformanceControls, updateF1Display, updateMasterDisplay, updatePartialDisplay,
   renderPresetBrowser, renderLaunchpadMirror, renderSensorPanel, renderSensorSafety,
-  updateMuseFocus, updateIMUYaw, updateIMUPitch, renderRendererSelector
+  updateMuseFocus, updateIMUYaw, updateIMUPitch, renderRendererSelector,
+  initTabs, renderUploadPanels, renderFieldSummary
 } from './ui';
 import './style.css';
 
@@ -19,17 +20,21 @@ interface RuntimeState {
   maxPartials: number;
   currentField: any;
   renderer: 'python' | 'webaudio';
+  spatialRotation: number;
+  residualMix: number;
 }
 
 const state: RuntimeState = {
   baseF1: 65.0,
   f1Offset: 0.0,
-  masterGain: 0.0, // safety: silent until the performer raises the master
+  masterGain: 0.0,
   partialGains: new Map(),
   muted: new Set(),
   maxPartials: 32,
   currentField: null,
   renderer: 'python',
+  spatialRotation: 0.0,
+  residualMix: 1.0,
 };
 
 const launchpadState = { active: new Set<number>(), toggles: new Set<number>(), momentaries: new Set<number>() };
@@ -56,6 +61,16 @@ function sendPartialGain(n: number, gain: number) {
   state.partialGains.set(n, gain);
   sendControl(ws, { type: 'partial_gain', value: { n, gain: effectiveGain } });
   updatePartialDisplay(n, effectiveGain);
+}
+
+function sendSpatialRotation(deg: number) {
+  state.spatialRotation = deg;
+  sendControl(ws, { type: 'spatial_rotation', value: deg });
+}
+
+function sendResidualMix(mix: number) {
+  state.residualMix = mix;
+  sendControl(ws, { type: 'residual_mix', value: mix });
 }
 
 async function loadPreset(presetId: string) {
@@ -85,6 +100,35 @@ async function saveSnapshot() {
     logStatus(`Saved snapshot to ${data.path}`);
   } else {
     logStatus(`Failed to save snapshot: ${data.detail || 'unknown'}`);
+  }
+}
+
+async function uploadPreset(file: File) {
+  const text = await file.text();
+  const data = JSON.parse(text);
+  const res = await fetch('/nh/v1/presets', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  const result = await res.json();
+  if (result.ok) {
+    logStatus(`Uploaded preset to ${result.path}`);
+    renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
+  } else {
+    logStatus(`Failed to upload preset: ${result.detail || 'unknown'}`);
+  }
+}
+
+async function analyzeWav(file: File) {
+  const form = new FormData();
+  form.append('file', file);
+  const res = await fetch('/nh/v1/analyze', { method: 'POST', body: form });
+  const result = await res.json();
+  if (result.ok) {
+    logStatus(`Analyzed ${file.name}: f1=${result.f1 || 'pending'}`);
+  } else {
+    logStatus(`Failed to analyze WAV: ${result.detail || 'unknown'}`);
   }
 }
 
@@ -123,6 +167,8 @@ async function initRendererSelector() {
 
 async function main() {
   setStatus('connecting');
+  initTabs();
+  renderUploadPanels({ onPresetUpload: uploadPreset, onWavAnalyze: analyzeWav });
   await initRendererSelector();
 
   ws = await connectWS({
@@ -142,9 +188,9 @@ async function main() {
           else state.muted.delete(n);
           sendPartialGain(n, state.partialGains.get(n) || 1.0);
         },
+        onSpatialRotationChange: sendSpatialRotation,
+        onResidualMixChange: sendResidualMix,
       });
-      // Reset master to 0 on (re)connect so audio never starts loud; the model
-      // default is also 0. The performer must explicitly raise the master.
       sendMaster(0);
       renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
       renderSensorPanel({
@@ -176,6 +222,20 @@ async function main() {
       state.currentField = field;
       state.baseF1 = field.f1 - state.f1Offset;
       updateF1Display(getF1());
+      renderFieldSummary(field);
+
+      const partials = field.partials || {};
+      const values = Array.isArray(partials) ? partials : Object.values(partials);
+      for (const p of values) {
+        const n = p.n;
+        const gain = p.gain || 0;
+        state.partialGains.set(n, gain);
+        const slider = document.querySelector(`.partial-slider[data-n="${n}"]`) as HTMLInputElement | null;
+        const display = document.getElementById(`partial-gain-display-${n}`) as HTMLSpanElement | null;
+        if (slider && !state.muted.has(n)) slider.value = String(gain);
+        if (display) display.textContent = state.muted.has(n) ? 'MUTE' : gain.toFixed(2);
+      }
+
       if (state.renderer === 'webaudio') {
         audioRenderer.render(field);
       }
@@ -252,13 +312,18 @@ async function main() {
     state.masterGain = 0;
     state.partialGains.clear();
     state.muted.clear();
-    // Reflect the reset in the controls so the sliders match the silent state.
+    state.spatialRotation = 0;
+    state.residualMix = 1.0;
     const masterSlider = document.getElementById('master-slider') as HTMLInputElement | null;
     if (masterSlider) masterSlider.value = '0';
     const f1Slider = document.getElementById('f1-slider') as HTMLInputElement | null;
     if (f1Slider) f1Slider.value = '0';
     const f1Fine = document.getElementById('f1-fine') as HTMLInputElement | null;
     if (f1Fine) f1Fine.value = '0';
+    const spatial = document.getElementById('spatial-rotation') as HTMLInputElement | null;
+    if (spatial) spatial.value = '0';
+    const residual = document.getElementById('residual-mix') as HTMLInputElement | null;
+    if (residual) residual.value = '1';
     updateF1Display(state.baseF1);
     updateMasterDisplay(0);
     logStatus('Panic sent');

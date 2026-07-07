@@ -17,6 +17,8 @@ class ModelState:
     partial_gain_offsets: Dict[int, float] = dc_field(default_factory=dict)
     spatial_rotation: float = 0.0
     residual_mix: float = 1.0
+    sensor_influence: float = 1.0
+    sensor_sources: Dict[str, bool] = dc_field(default_factory=dict)
 
     def update_from_base_field(self, base_field: HarmonicField) -> None:
         """Replace the base field, keeping current modulation values."""
@@ -55,6 +57,13 @@ class ModelState:
             self.spatial_rotation = float(value)
         elif etype == "residual_mix":
             self.residual_mix = float(value)
+        elif etype == "sensor_source_enable":
+            v = value if isinstance(value, dict) else {}
+            source = v.get("source")
+            if source:
+                self.sensor_sources[str(source)] = bool(v.get("enabled", True))
+        elif etype == "sensor_influence":
+            self.sensor_influence = float(value)
         elif etype == "panic":
             self.reset_modulations()
 
@@ -63,11 +72,14 @@ class ModelState:
         if mapping is None:
             return
         etype = event.get("type")
+        source = event.get("source")
+        if source is not None and not self.sensor_sources.get(str(source), True):
+            return
         cfg = mapping.get(etype)
         if cfg is None:
             return
         raw = float(event.get("value", 0.0))
-        scaled = raw * cfg.get("scale", 1.0) + cfg.get("offset", 0.0)
+        scaled = self.sensor_influence * (raw * cfg.get("scale", 1.0) + cfg.get("offset", 0.0))
         param = cfg.get("param")
         if param == "master_gain":
             self.master_gain = scaled
@@ -87,6 +99,7 @@ class ModelState:
         self.partial_gain_offsets.clear()
         self.spatial_rotation = 0.0
         self.residual_mix = 1.0
+        self.sensor_sources.clear()
 
     def to_snapshot(self) -> HarmonicField:
         """Return a thread-safe snapshot with modulations applied."""
@@ -111,6 +124,8 @@ class ModelState:
             "partial_gain_offsets": self.partial_gain_offsets,
             "spatial_rotation": self.spatial_rotation,
             "residual_mix": self.residual_mix,
+            "sensor_influence": self.sensor_influence,
+            "sensor_sources": self.sensor_sources,
         }
 
     @classmethod
@@ -122,4 +137,6 @@ class ModelState:
             partial_gain_offsets=d.get("partial_gain_offsets", {}),
             spatial_rotation=d.get("spatial_rotation", 0.0),
             residual_mix=d.get("residual_mix", 1.0),
+            sensor_influence=d.get("sensor_influence", 1.0),
+            sensor_sources=d.get("sensor_sources", {}),
         )

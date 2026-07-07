@@ -132,6 +132,7 @@ def test_renderer_selector_populates_and_switches(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
         page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.locator('.tab-btn[data-tab="renderer"]').click()
 
         select = page.locator("#renderer-select")
         select.wait_for(state="visible", timeout=10_000)
@@ -160,6 +161,7 @@ def test_load_preset_change_f1_and_panic(server_url: str, preset_file: str) -> N
         page.goto(server_url)
         page.wait_for_selector("#connection-status.connected", timeout=10_000)
         page.wait_for_selector("#panic:not([disabled])", timeout=10_000)
+        page.locator('.tab-btn[data-tab="performance"]').click()
 
         # Load preset via HTTP
         resp = page.evaluate(
@@ -182,6 +184,7 @@ def test_load_preset_change_f1_and_panic(server_url: str, preset_file: str) -> N
 
         # Click PANIC
         page.locator("#panic").click()
+        page.locator('.tab-btn[data-tab="log"]').click()
         page.wait_for_selector("#status-log div", timeout=5_000)
         log_text = page.locator("#status-log").text_content()
         assert "Panic" in log_text or "panic" in log_text.lower()
@@ -192,6 +195,7 @@ def test_launchpad_grid_shows_64_pads(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
         page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.locator('.tab-btn[data-tab="launchpad"]').click()
         page.wait_for_selector("#launchpad-mirror .launchpad-pad", timeout=10_000)
         count = page.locator("#launchpad-mirror .launchpad-pad").count()
         assert count == 64
@@ -202,6 +206,7 @@ def test_presets_section_loads(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
         page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.locator('.tab-btn[data-tab="presets"]').click()
         page.wait_for_selector(
             "#preset-browser select",
             timeout=10_000,
