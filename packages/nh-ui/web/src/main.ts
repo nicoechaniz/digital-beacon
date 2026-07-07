@@ -162,6 +162,7 @@ async function initRendererSelector() {
   }
   renderRendererSelector(state.renderer, {
     onChange: (renderer) => setRenderer(renderer),
+    onTestTone: () => audioRenderer.playTestTone(),
   });
   setRendererStatus(state.renderer, true);
 }

@@ -30,6 +30,7 @@ export function setAudioStatus(status: { state: string; message?: string }) {
 
 interface RendererSelectorHandlers {
   onChange: (renderer: 'python' | 'webaudio') => void;
+  onTestTone?: () => void;
 }
 
 export function renderRendererSelector(
@@ -61,6 +62,15 @@ export function renderRendererSelector(
     <p><strong>WebAudio (browser):</strong> audio goes to your browser's output. You must click <em>Start Audio</em> once with your mouse to unlock the browser audio context.</p>
   `;
   container.appendChild(help);
+
+  const testBtn = document.createElement('button');
+  testBtn.id = 'test-tone';
+  testBtn.textContent = 'Test Tone';
+  testBtn.className = 'audio-toggle';
+  testBtn.style.marginLeft = '0';
+  testBtn.style.marginTop = '0.5rem';
+  testBtn.addEventListener('click', () => handlers.onTestTone?.());
+  container.appendChild(testBtn);
 
   const select = row.querySelector('#renderer-select') as HTMLSelectElement;
   select.value = current;

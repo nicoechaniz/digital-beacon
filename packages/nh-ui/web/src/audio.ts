@@ -106,4 +106,20 @@ export class WebAudioRenderer {
       }
     }
   }
+
+  async playTestTone() {
+    // Ensure audio context is unlocked and play a short 440 Hz tone.
+    await this.start();
+    if (!this.ctx) return;
+    const osc = this.ctx.createOscillator();
+    const gain = this.ctx.createGain();
+    osc.frequency.value = 440;
+    gain.gain.value = 0.2;
+    osc.connect(gain);
+    gain.connect(this.ctx.destination);
+    const now = this.ctx.currentTime;
+    osc.start(now);
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+    osc.stop(now + 0.5);
+  }
 }
