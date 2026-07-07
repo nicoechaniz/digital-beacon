@@ -24,7 +24,10 @@ class NHRendererProcessor extends AudioWorkletProcessor {
     const left = new Float32Array(frames);
     const right = new Float32Array(frames);
 
-    for (const partial of this.field.partials || []) {
+    const partials = Array.isArray(this.field.partials)
+      ? this.field.partials
+      : Object.values(this.field.partials || {});
+    for (const partial of partials) {
       if (partial.gain <= 0) continue;
       const freq = f1 * partial.n;
       const pan = partial.pan || 0.0;

@@ -77,7 +77,7 @@ async def list_presets() -> List[Dict[str, Any]]:
             p = load(str(path))
             presets.append({
                 "id": path.stem,
-                "name": p.harmonic_field.metadata.get("name", path.stem),
+                "name": p.metadata.get("name", path.stem),
                 "version": p.version,
                 "f1": p.harmonic_field.f1,
                 "n_partials": len(p.harmonic_field.partials),

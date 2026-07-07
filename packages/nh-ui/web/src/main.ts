@@ -164,6 +164,7 @@ async function main() {
           sendControl(ws, { type: 'sensor_source_enable', value: { source, enabled } });
         },
       });
+      renderLaunchpadMirror(launchpadState);
     },
     onField: (field) => {
       state.currentField = field;

@@ -224,9 +224,9 @@ interface LaunchpadState {
 export function renderLaunchpadMirror(state: LaunchpadState) {
   let container = document.getElementById('launchpad-mirror');
   if (!container) return;
-  if (container.children.length === 0) {
-    container.innerHTML = '<h2>Launchpad</h2>';
-    const grid = document.createElement('div');
+  let grid = container.querySelector('.launchpad-grid');
+  if (!grid) {
+    grid = document.createElement('div');
     grid.className = 'launchpad-grid';
     for (let row = 0; row < 8; row++) {
       for (let col = 0; col < 8; col++) {
