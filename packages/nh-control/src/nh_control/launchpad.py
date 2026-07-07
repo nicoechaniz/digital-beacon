@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, Optional
 
 from nh_control.event import ControlEvent
 
@@ -8,13 +8,16 @@ from nh_control.event import ControlEvent
 class LaunchpadAdapter:
     """Launchpad Mini adapter that emits normalized ControlEvents.
 
-    Mirrors the digital_beacon/midi_control.py split-mode logic:
-    - lower half of the 8x8 grid (rows 0-3) are momentary pads
-    - upper half (rows 4-7) are toggles
-    - CC104 toggles split mode
-    - CC111 / note 120 is panic
+    Mirrors the digital_beacon/midi_control.py split-mode layout:
+    - y=0 is the TOP physical row, y=7 is the BOTTOM physical row.
+    - The bottom half of the 8x8 grid (rows H..E, i.e. rows 0..3 from the
+      bottom) are momentary pads addressing harmonics 1..32.
+    - The upper half (rows D..A, i.e. rows 4..7 from the bottom) are toggles
+      addressing the same harmonics 1..32.
+    - CC104 toggles split mode.
+    - CC111 is panic.
 
-    n always in 1..32 for both halves (upper addresses same harmonics as lower).
+    n is always in 1..32 for both halves (upper addresses same harmonics as lower).
     """
 
     # LED feedback colors (Launchpad velocity in Programmer mode)
@@ -30,31 +33,32 @@ class LaunchpadAdapter:
         self.toggle_state: Dict[int, bool] = {}
 
     def _row(self, note: int) -> int:
-        if self.stride == 8:
-            return note // 8
-        return note // 16
+        return note // self.stride
 
     def _col(self, note: int) -> int:
-        if self.stride == 8:
-            return note % 8
-        return note % 16
+        return note % self.stride
 
-    def _pad_to_n(self, note: int) -> int:
+    def note_to_harmonic(self, note: int) -> int:
         """Map a pad note to a harmonic index (1-based, 1..32 for both halves)."""
         row = self._row(note)
         col = self._col(note)
-        if self.split_mode and row >= 4:
-            row = row - 4
-        return row * 8 + col + 1
+        # Match pre-refactor layout: row 0 is the top physical row, row 7 the bottom.
+        row_from_bottom = 7 - row
+        if self.split_mode and row_from_bottom >= 4:
+            row_from_bottom = row_from_bottom - 4
+        return row_from_bottom * 8 + col + 1
+
+    def _is_upper_half(self, note: int) -> bool:
+        """Return True if the physical pad is in the upper (toggle) half."""
+        return (7 - self._row(note)) >= 4
 
     def on_midi_message(self, msg: Any) -> Optional[ControlEvent]:
         """Process a mido message and emit a ControlEvent."""
         if msg.type == "note_on":
             note = msg.note
             velocity = msg.velocity
-            n = self._pad_to_n(note)
-            row = self._row(note)
-            if self.split_mode and row >= 4:
+            n = self.note_to_harmonic(note)
+            if self.split_mode and self._is_upper_half(note):
                 # toggle
                 if velocity > 0:
                     self.toggle_state[note] = not self.toggle_state.get(note, False)
@@ -91,10 +95,12 @@ class LaunchpadAdapter:
     def _n_to_note(self, n: int, upper: bool = False) -> int:
         """Map harmonic n (1-based) back to physical pad note for lower or upper half."""
         idx = n - 1
-        row = idx // 8
+        row_from_bottom = idx // 8
         col = idx % 8
         if upper:
-            row += 4
+            row_from_bottom += 4
+        # Convert back to Launchpad coordinates (row 0 = top).
+        row = 7 - row_from_bottom
         if self.stride == 8:
             return row * 8 + col
         return row * 16 + col

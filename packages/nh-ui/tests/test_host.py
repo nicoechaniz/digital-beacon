@@ -123,8 +123,8 @@ def test_launchpad_pad_events_map_to_partial_gain(client, runtime):
     """Pad events from LaunchpadAdapter (via nh_ui) affect model partial gains (deterministic, no hw)."""
     from nh_control import LaunchpadAdapter
     adapter = LaunchpadAdapter(stride=16, split_mode=True)
-    # lower pad -> momentary pad_on n=1 -> gain 1
-    msg = type('M', (), {'type': 'note_on', 'note': 0, 'velocity': 127})()
+    # bottom-left pad (row 7, col 0) -> momentary pad_on n=1 -> gain 1
+    msg = type('M', (), {'type': 'note_on', 'note': 112, 'velocity': 127})()
     ev = adapter.on_midi_message(msg)
     assert ev.type == 'pad_on'
     assert ev.value['n'] == 1
@@ -134,10 +134,10 @@ def test_launchpad_pad_events_map_to_partial_gain(client, runtime):
         ws.send_json({"type": "control_event", "payload": ev.to_dict()})
     assert runtime.model.partial_gain_offsets.get(1) == 1.0
 
-    # upper pad -> second press on toggle n=1 -> off , gain 0
-    msg2 = type('M', (), {'type': 'note_on', 'note': 64, 'velocity': 127})()
-    ev2 = adapter.on_midi_message(msg2)  # first upper press -> active true
-    ev2 = adapter.on_midi_message(msg2)  # second upper press -> active false
+    # top of toggle half (row 3, col 0) -> toggle n=1 -> off, gain 0
+    msg2 = type('M', (), {'type': 'note_on', 'note': 48, 'velocity': 127})()
+    ev2 = adapter.on_midi_message(msg2)  # first toggle press -> active true
+    ev2 = adapter.on_midi_message(msg2)  # second toggle press -> active false
     assert ev2.type == 'pad_toggle'
     assert ev2.value['n'] == 1
     assert ev2.value['active'] is False

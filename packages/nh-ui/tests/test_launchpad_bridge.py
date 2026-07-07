@@ -54,22 +54,23 @@ def _bridge_with_out_port():
 
 def test_lower_pad_lights_green():
     bridge = _bridge_with_out_port()
-    ev = bridge.adapter.on_midi_message(FakeMessage("note_on", note=0, velocity=127))
+    # bottom-left pad -> momentary -> green
+    ev = bridge.adapter.on_midi_message(FakeMessage("note_on", note=112, velocity=127))
     bridge._drive_led(ev)
     assert bridge.out_port.sent, "expected an LED message"
     last = bridge.out_port.sent[-1]
-    assert last.note == 0
+    assert last.note == 112
     assert last.velocity == LaunchpadAdapter.COLOR_GREEN
 
 
 def test_upper_toggle_lights_orange_then_off():
     bridge = _bridge_with_out_port()
-    ev_on = bridge.adapter.on_midi_message(FakeMessage("note_on", note=64, velocity=127))
+    ev_on = bridge.adapter.on_midi_message(FakeMessage("note_on", note=48, velocity=127))
     bridge._drive_led(ev_on)
-    assert bridge.out_port.sent[-1].note == 64
+    assert bridge.out_port.sent[-1].note == 48
     assert bridge.out_port.sent[-1].velocity == LaunchpadAdapter.COLOR_ORANGE
 
-    ev_off = bridge.adapter.on_midi_message(FakeMessage("note_on", note=64, velocity=127))
+    ev_off = bridge.adapter.on_midi_message(FakeMessage("note_on", note=48, velocity=127))
     bridge._drive_led(ev_off)
     assert bridge.out_port.sent[-1].velocity == LaunchpadAdapter.COLOR_OFF
 

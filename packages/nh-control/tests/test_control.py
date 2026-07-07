@@ -27,7 +27,8 @@ def test_mapping_graph():
 
 def test_launchpad_note_on():
     adapter = LaunchpadAdapter(stride=16, split_mode=True)
-    msg = FakeMidoNote("note_on", 0, 127)
+    # bottom-left pad (row 7, col 0) -> momentary, n=1
+    msg = FakeMidoNote("note_on", 112, 127)
     ev = adapter.on_midi_message(msg)
     assert ev is not None
     assert ev.type == "pad_on"
@@ -36,8 +37,8 @@ def test_launchpad_note_on():
 
 def test_launchpad_split_toggle():
     adapter = LaunchpadAdapter(stride=16, split_mode=True)
-    # Row 4 (upper half) pad note = row 4 * 16 + 0 = 64 -> n remapped to 1 (same range)
-    msg = FakeMidoNote("note_on", 64, 127)
+    # top of toggle half (row 3, col 0) -> toggle, n=1
+    msg = FakeMidoNote("note_on", 48, 127)
     ev = adapter.on_midi_message(msg)
     assert ev.type == "pad_toggle"
     assert ev.value["active"] is True
@@ -61,22 +62,23 @@ def test_control_event_round_trip():
 def test_launchpad_led_feedback():
     adapter = LaunchpadAdapter(stride=16, split_mode=True)
     # lower momentary -> green
-    msg = FakeMidoNote("note_on", 0, 127)
+    msg = FakeMidoNote("note_on", 112, 127)
     ev = adapter.on_midi_message(msg)
     led = adapter.led_for_event(ev)
     assert led is not None
-    assert led["note"] == 0
+    assert led["note"] == 112
     assert led["velocity"] == adapter.COLOR_GREEN
 
     # upper toggle -> orange
-    msg2 = FakeMidoNote("note_on", 64, 127)
+    msg2 = FakeMidoNote("note_on", 48, 127)
     ev2 = adapter.on_midi_message(msg2)
     led2 = adapter.led_for_event(ev2)
     assert led2 is not None
+    assert led2["note"] == 48
     assert led2["velocity"] == adapter.COLOR_ORANGE
 
     # toggle off -> off
-    msg3 = FakeMidoNote("note_on", 64, 127)  # toggle again
+    msg3 = FakeMidoNote("note_on", 48, 127)  # toggle again
     ev3 = adapter.on_midi_message(msg3)
     led3 = adapter.led_for_event(ev3)
     assert led3["velocity"] == adapter.COLOR_OFF
