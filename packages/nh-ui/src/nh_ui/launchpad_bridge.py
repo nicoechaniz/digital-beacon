@@ -16,6 +16,7 @@ so the host (and the test suite) run unaffected without hardware.
 from __future__ import annotations
 
 import asyncio
+import os
 import threading
 from typing import Any, Callable, Iterable, Optional
 
@@ -186,6 +187,11 @@ class LaunchpadBridge:
                 pass
 
     def _first_port(self, names: Iterable[str]) -> Optional[str]:
+        forced = os.getenv("NH_LAUNCHPAD_PORT")
+        if forced:
+            for name in names:
+                if forced in name:
+                    return name
         for name in names:
             if _looks_like_launchpad(name):
                 return name
