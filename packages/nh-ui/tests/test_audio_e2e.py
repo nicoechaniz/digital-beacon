@@ -103,9 +103,9 @@ async def test_preset_load_and_audio(server_with_loopback):
 
     # Connect to runtime WS, drain buffered, send master, record
     async with websockets.connect("ws://127.0.0.1:8765/") as ws:
-        # Drain initial messages
-        for _ in range(10):
-            await asyncio.wait_for(ws.recv(), timeout=1)
+        # Drain initial messages (fewer now since master is already at 0.6)
+        for _ in range(5):
+            await asyncio.wait_for(ws.recv(), timeout=2)
 
         # Set master gain
         await ws.send(json.dumps({

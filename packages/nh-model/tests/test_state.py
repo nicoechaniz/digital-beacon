@@ -6,7 +6,7 @@ from nh_model import ModelState
 
 def test_default_state():
     state = ModelState()
-    assert state.master_gain == 0.0
+    assert state.master_gain == 0.6
     assert state.f1_offset == 0.0
 
 
@@ -70,7 +70,7 @@ def test_panic_resets():
     state.master_gain = 0.5
     state.f1_offset = 10.0
     state.apply_control({"type": "panic"})
-    assert state.master_gain == 0.0
+    assert state.master_gain == 0.6
     assert state.f1_offset == 0.0
 
 
@@ -97,10 +97,10 @@ def test_apply_control_pad_ignores_missing_n():
 
 
 def test_snapshot_master_zero_is_silent():
-    """Default master (0) zeroes every partial gain, so the render is silent."""
-    field = HarmonicField(f1=65.0)
-    field.partials[1] = Partial(n=1, gain=1.0)
-    field.partials[2] = Partial(n=2, gain=0.7)
-    state = ModelState(base_field=field)  # master defaults to 0
+    """to_snapshot with master=0 has all gains zero regardless of base field."""
+    field = HarmonicField(f1=100.0)
+    field.partials[1] = Partial(n=1, gain=0.9)
+    field.partials[3] = Partial(n=3, gain=0.4)
+    state = ModelState(base_field=field, master_gain=0.0)
     snapshot = state.to_snapshot()
     assert all(p.gain == 0.0 for p in snapshot.partials.values())

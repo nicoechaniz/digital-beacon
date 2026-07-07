@@ -27,7 +27,7 @@ interface RuntimeState {
 const state: RuntimeState = {
   baseF1: 65.0,
   f1Offset: 0.0,
-  masterGain: 0.0,
+  masterGain: 0.6,
   partialGains: new Map(),
   muted: new Set(),
   maxPartials: 32,
@@ -193,7 +193,9 @@ async function main() {
         onSpatialRotationChange: sendSpatialRotation,
         onResidualMixChange: sendResidualMix,
       });
-      sendMaster(0);
+      // Sync master from initial server state instead of forcing 0
+      const masterSlider = document.getElementById('master-slider') as HTMLInputElement | null;
+      if (masterSlider) masterSlider.value = String(state.masterGain);
       renderPresetBrowser({ onLoad: loadPreset, onSave: saveSnapshot });
       renderSensorPanel({
         onSimulateMuse: (value) => {
@@ -335,7 +337,7 @@ async function main() {
     state.spatialRotation = 0;
     state.residualMix = 1.0;
     const masterSlider = document.getElementById('master-slider') as HTMLInputElement | null;
-    if (masterSlider) masterSlider.value = '0';
+    if (masterSlider) masterSlider.value = '0.6';
     const f1Slider = document.getElementById('f1-slider') as HTMLInputElement | null;
     if (f1Slider) f1Slider.value = '0';
     const f1Fine = document.getElementById('f1-fine') as HTMLInputElement | null;

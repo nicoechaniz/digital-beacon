@@ -472,14 +472,10 @@ export function renderFieldSummary(field: any) {
   const active = Object.values(partials).filter((p: any) => (p.gain || 0) > 0).length;
   const mods = field?.modulations || {};
   const masterGain = mods.master_gain ?? 0;
-  const warning = masterGain < 0.01
-    ? '<span style="color:var(--error);font-weight:bold">⚠ Master at 0 — raise to hear audio</span>'
-    : '';
   el.innerHTML = `
     <span><strong>f1:</strong> ${(field?.f1 || 0).toFixed(2)} Hz</span>
     <span><strong>partials:</strong> ${active} / ${Object.keys(partials).length}</span>
     <span><strong>master:</strong> ${masterGain.toFixed(2)}</span>
-    ${warning}
   `;
 }
 

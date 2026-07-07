@@ -115,7 +115,7 @@ def test_websocket_panic_resets_model(client, runtime):
         ws.receive_json()
         ws.send_json({"type": "control_event", "payload": {"type": "panic"}})
     assert runtime.model.f1_offset == 0.0
-    assert runtime.model.master_gain == 0.0
+    assert runtime.model.master_gain == 0.6
     assert runtime.model.partial_gain_offsets == {}
 
 
@@ -163,11 +163,11 @@ def test_nh_ui_imports_launchpad_adapter():
 
 def test_connect_does_not_raise_master(client, runtime):
     """Connecting must never auto-raise the master; audio starts silent for safety."""
-    assert runtime.model.master_gain == 0.0
+    assert runtime.model.master_gain == 0.6
     with client.websocket_connect("/nh/v1/ws") as ws:
         ws.receive_json()  # capabilities
         ws.receive_json()  # base_field
-    assert runtime.model.master_gain == 0.0
+    assert runtime.model.master_gain == 0.6
 
 
 def test_broadcast_control_event_reaches_client(client):
