@@ -54,15 +54,18 @@ class PythonSounddeviceRenderer(Renderer):
         base_freq = field.f1
 
         out = np.zeros((frames, 2), dtype=np.float32)
-        for n, partial in field.partials.items():
-            if partial.gain <= 0.0:
-                continue
-            freq = base_freq * n
+        active_partials = [
+            partial for n, partial in field.partials.items()
+            if partial.gain > 0.0
+        ]
+        norm = 1.0 / max(1.0, np.sqrt(len(active_partials)))
+        for partial in active_partials:
+            freq = base_freq * partial.n
             phase_rad = np.deg2rad(partial.phase)
             pan = partial.pan
             left_gain = 0.5 * (1.0 - pan)
             right_gain = 0.5 * (1.0 + pan)
-            samples = partial.gain * np.sin(2.0 * np.pi * freq * t + phase_rad + self._phase)
+            samples = norm * partial.gain * np.sin(2.0 * np.pi * freq * t + phase_rad + self._phase)
             out[:, 0] += left_gain * samples
             out[:, 1] += right_gain * samples
 

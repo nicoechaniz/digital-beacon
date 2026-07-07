@@ -27,8 +27,9 @@ class NHRendererProcessor extends AudioWorkletProcessor {
     const partials = Array.isArray(this.field.partials)
       ? this.field.partials
       : Object.values(this.field.partials || {});
-    for (const partial of partials) {
-      if (partial.gain <= 0) continue;
+    const activePartials = partials.filter(p => p.gain > 0);
+    const norm = 1.0 / Math.max(1.0, Math.sqrt(activePartials.length));
+    for (const partial of activePartials) {
       const freq = f1 * partial.n;
       const pan = partial.pan || 0.0;
       const phaseDeg = partial.phase || 0.0;
@@ -38,7 +39,7 @@ class NHRendererProcessor extends AudioWorkletProcessor {
 
       for (let i = 0; i < frames; i++) {
         const t = (currentFrame + i) / sr;
-        const sample = partial.gain * Math.sin(2.0 * Math.PI * freq * t + phaseOffset + this.phase);
+        const sample = norm * partial.gain * Math.sin(2.0 * Math.PI * freq * t + phaseOffset + this.phase);
         left[i] += leftGain * sample;
         right[i] += rightGain * sample;
       }

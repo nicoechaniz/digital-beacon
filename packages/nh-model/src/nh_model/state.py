@@ -12,7 +12,7 @@ class ModelState:
     """Runtime state of a harmonic field with local modulations."""
     base_field: HarmonicField = dc_field(default_factory=HarmonicField)
     # Local modulation accumulators (not stored in base_field)
-    master_gain: float = 1.0
+    master_gain: float = 0.0
     f1_offset: float = 0.0
     partial_gain_offsets: Dict[int, float] = dc_field(default_factory=dict)
     spatial_rotation: float = 0.0
@@ -64,7 +64,7 @@ class ModelState:
             self.partial_gain_offsets[n] = scaled
 
     def reset_modulations(self) -> None:
-        self.master_gain = 1.0
+        self.master_gain = 0.0
         self.f1_offset = 0.0
         self.partial_gain_offsets.clear()
         self.spatial_rotation = 0.0

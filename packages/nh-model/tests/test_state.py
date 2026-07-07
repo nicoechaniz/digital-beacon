@@ -6,7 +6,7 @@ from nh_model import ModelState
 
 def test_default_state():
     state = ModelState()
-    assert state.master_gain == 1.0
+    assert state.master_gain == 0.0
     assert state.f1_offset == 0.0
 
 
@@ -70,5 +70,5 @@ def test_panic_resets():
     state.master_gain = 0.5
     state.f1_offset = 10.0
     state.apply_control({"type": "panic"})
-    assert state.master_gain == 1.0
+    assert state.master_gain == 0.0
     assert state.f1_offset == 0.0

@@ -114,5 +114,5 @@ def test_websocket_panic_resets_model(client, runtime):
         ws.receive_json()
         ws.send_json({"type": "control_event", "payload": {"type": "panic"}})
     assert runtime.model.f1_offset == 0.0
-    assert runtime.model.master_gain == 1.0
+    assert runtime.model.master_gain == 0.0
     assert runtime.model.partial_gain_offsets == {}

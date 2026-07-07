@@ -20,6 +20,7 @@ async def test_sensor_influence_zero_is_hard_kill():
         try:
             await ws.recv()  # caps
             await ws.recv()  # field
+            await ws.send(TransportMessage("control_event", {"type": "master", "value": 1.0}).to_json())
             await ws.send(TransportMessage("control_event", {"type": "sensor_influence", "value": 0.0}).to_json())
             await ws.send(TransportMessage("sensor_event", {"source": "muse", "type": "muse_focus", "value": 0.75}).to_json())
             await asyncio.sleep(0.1)
@@ -68,6 +69,7 @@ async def test_sensor_source_disable():
         try:
             await ws.recv()  # caps
             await ws.recv()  # field
+            await ws.send(TransportMessage("control_event", {"type": "master", "value": 1.0}).to_json())
             await ws.send(TransportMessage("control_event", {"type": "sensor_source_enable", "value": {"source": "muse", "enabled": False}}).to_json())
             await ws.send(TransportMessage("sensor_event", {"source": "muse", "type": "muse_focus", "value": 0.75}).to_json())
             await asyncio.sleep(0.1)
