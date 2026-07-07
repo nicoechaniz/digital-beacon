@@ -7,7 +7,7 @@ import {
   renderPerformanceControls, updateF1Display, updateMasterDisplay, updatePartialDisplay,
   renderPresetBrowser, renderLaunchpadMirror, renderSensorPanel, renderSensorSafety,
   updateMuseFocus, updateIMUYaw, updateIMUPitch, renderRendererSelector,
-  initTabs, renderUploadPanels, renderFieldSummary
+  initTabs, renderUploadPanels, renderFieldSummary, setAnalysisResults
 } from './ui';
 import './style.css';
 
@@ -126,10 +126,11 @@ async function analyzeWav(file: File) {
   const res = await fetch('/nh/v1/analyze', { method: 'POST', body: form });
   const result = await res.json();
   if (result.ok) {
-    logStatus(`Analyzed ${file.name}: f1=${result.f1 || 'pending'}`);
+    logStatus(`Analyzed ${file.name}: f1=${result.f1 ? result.f1.toFixed(2) + ' Hz' : 'pending'}`);
   } else {
     logStatus(`Failed to analyze WAV: ${result.detail || 'unknown'}`);
   }
+  setAnalysisResults(result);
 }
 
 async function setRenderer(renderer: 'python' | 'webaudio') {

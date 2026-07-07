@@ -415,6 +415,30 @@ export function renderUploadPanels(handlers: UploadHandlers) {
   });
   analysis.appendChild(wavInput);
   analysis.appendChild(wavBtn);
+
+  const results = document.createElement('div');
+  results.id = 'analysis-results';
+  results.className = 'analysis-results';
+  results.innerHTML = '<p>No analysis yet.</p>';
+  analysis.appendChild(results);
+}
+
+export function setAnalysisResults(result: any) {
+  const el = document.getElementById('analysis-results') as HTMLDivElement | null;
+  if (!el) return;
+  if (!result.ok) {
+    el.innerHTML = `<p class="error">Analysis failed: ${result.detail || 'unknown'}</p>`;
+    return;
+  }
+  const f1 = result.f1 ? `${result.f1.toFixed(2)} Hz` : 'N/A';
+  el.innerHTML = `
+    <ul>
+      <li><strong>f1:</strong> ${f1}</li>
+      <li><strong>sr:</strong> ${result.sr || 'N/A'}</li>
+      <li><strong>duration:</strong> ${result.duration ? result.duration.toFixed(2) + 's' : 'N/A'}</li>
+      <li><strong>voiced frames:</strong> ${result.voiced_frames ?? 'N/A'} / ${result.total_frames ?? 'N/A'}</li>
+    </ul>
+  `;
 }
 
 export function renderFieldSummary(field: any) {

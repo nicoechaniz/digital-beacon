@@ -12,6 +12,8 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 import uvicorn
 
+import numpy as np
+
 from nh_core import HarmonicField
 from nh_presets import Preset, load, save, validate
 from nh_runtime import BaseFieldServer
@@ -169,11 +171,31 @@ async def create_preset(data: Dict[str, Any]):
 async def analyze_wav(file: UploadFile = File(...)):
     UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     dest = UPLOAD_DIR / file.filename
+    content = await file.read()
     with open(dest, "wb") as f:
-        content = await file.read()
         f.write(content)
-    # Placeholder; analysis will be wired in M2.
-    return {"ok": True, "path": str(dest), "f1": None, "note": "analysis wired in M2"}
+    try:
+        from nh_analysis import LibrosaPyinEstimator
+        import soundfile as sf
+        audio, sr = sf.read(str(dest))
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        estimator = LibrosaPyinEstimator()
+        f0, voiced = estimator.estimate(audio, sr)
+        voiced_f0 = f0[voiced]
+        mean_f0 = float(np.mean(voiced_f0)) if len(voiced_f0) > 0 else None
+        return {
+            "ok": True,
+            "path": str(dest),
+            "f1": mean_f0,
+            "sr": sr,
+            "duration": len(audio) / sr,
+            "voiced_frames": int(voiced.sum()),
+            "total_frames": len(f0),
+        }
+    except Exception as e:
+        # If analysis libs/files are unavailable, still store the file for M2.
+        return {"ok": True, "path": str(dest), "f1": None, "note": f"analysis pending: {e}"}
 
 
 @app.get("/nh/v1/renderer")

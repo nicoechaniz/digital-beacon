@@ -124,6 +124,32 @@ section h2 {
   color: var(--accent);
 }
 
+.analysis-results {
+  margin-top: 1rem;
+  background: #1f1f1f;
+  padding: 0.75rem;
+  border-radius: 4px;
+}
+
+.analysis-results ul {
+  margin: 0;
+  padding-left: 1.25rem;
+  font-size: 0.9rem;
+}
+
+.analysis-results li {
+  margin: 0.25rem 0;
+}
+
+.analysis-results p {
+  margin: 0;
+  color: #aaa;
+}
+
+.analysis-results .error {
+  color: var(--error);
+}
+
 .upload-group {
   margin-top: 1rem;
   padding-top: 1rem;
