@@ -150,6 +150,20 @@ section h2 {
   color: var(--error);
 }
 
+.help-box {
+  margin-top: 1rem;
+  background: #1f1f1f;
+  border-left: 3px solid var(--accent);
+  padding: 0.75rem;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.help-box p {
+  margin: 0.25rem 0;
+  color: #aaa;
+}
+
 .upload-group {
   margin-top: 1rem;
   padding-top: 1rem;

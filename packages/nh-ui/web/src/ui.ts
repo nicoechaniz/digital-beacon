@@ -54,6 +54,14 @@ export function renderRendererSelector(
   caps.id = 'renderer-caps';
   container.appendChild(caps);
 
+  const help = document.createElement('div');
+  help.className = 'help-box';
+  help.innerHTML = `
+    <p><strong>Python (sounddevice):</strong> audio goes to the server's sound card.</p>
+    <p><strong>WebAudio (browser):</strong> audio goes to your browser's output. You must click <em>Start Audio</em> once with your mouse to unlock the browser audio context.</p>
+  `;
+  container.appendChild(help);
+
   const select = row.querySelector('#renderer-select') as HTMLSelectElement;
   select.value = current;
   select.addEventListener('change', () => {
