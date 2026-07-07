@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, Optional, Union
+from typing import Any, Awaitable, Callable, Dict, List, Optional, Set, Union
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, WebSocket, WebSocketDisconnect
 from fastapi.responses import FileResponse, JSONResponse
@@ -25,6 +25,11 @@ app.mount("/assets", StaticFiles(directory=STATIC_DIR / "assets"), name="assets"
 
 # The runtime server is managed externally and injected here.
 _runtime_server: Optional[BaseFieldServer] = None
+
+# UI WebSocket clients connected to the FastAPI host. We mirror the runtime's
+# base-field broadcast to them so the SPA stays in sync.
+_ui_clients: Set[WebSocket] = set()
+_ui_broadcast_task: Optional[asyncio.Task] = None
 
 # Renderer selection is managed externally. The UI can read and write it.
 _current_renderer: str = "python"
@@ -163,7 +168,8 @@ async def websocket_endpoint(websocket: WebSocket):
         return
 
     runtime = _runtime_server
-    runtime.clients.add(websocket)
+    _ui_clients.add(websocket)
+    _ensure_ui_broadcast_loop()
     try:
         await _send_capabilities(websocket, runtime)
         await _send_field(websocket, runtime)
@@ -172,12 +178,17 @@ async def websocket_endpoint(websocket: WebSocket):
             try:
                 msg = TransportMessage.from_json(data)
                 await _handle_client_message(websocket, runtime, msg)
+                # Eager feedback so the UI reacts without waiting for the next
+                # broadcast tick.
+                await _send_field_to_clients()
             except Exception as e:
                 await websocket.send_json(TransportMessage("error", {"code": "parse_error", "message": str(e)}).to_dict())
     except WebSocketDisconnect:
         pass
     finally:
-        runtime.clients.discard(websocket)
+        _ui_clients.discard(websocket)
+        if not _ui_clients:
+            _stop_ui_broadcast_loop()
 
 
 async def _send_capabilities(websocket, runtime: BaseFieldServer):
@@ -212,6 +223,48 @@ async def _handle_client_message(websocket, runtime: BaseFieldServer, msg: Trans
         runtime.model.apply_sensor(msg.payload, runtime.sensor_mapping)
     elif msg.type == "ping":
         await websocket.send_text(TransportMessage("pong", {}).to_json())
+
+
+async def _send_field_to_clients():
+    """Broadcast the current base-field snapshot to every UI WebSocket client."""
+    if not _ui_clients or _runtime_server is None:
+        return
+    snapshot = _runtime_server.model.to_snapshot()
+    msg = TransportMessage("base_field", snapshot.to_dict())
+    payload = msg.to_json()
+    disconnected = []
+    for client in _ui_clients:
+        try:
+            await client.send_text(payload)
+        except Exception:
+            disconnected.append(client)
+    for client in disconnected:
+        _ui_clients.discard(client)
+
+
+async def _ui_broadcast_loop():
+    """Periodic mirror of the runtime base field to UI clients."""
+    try:
+        while True:
+            await asyncio.sleep(0.1)
+            await _send_field_to_clients()
+    except asyncio.CancelledError:
+        pass
+
+
+def _ensure_ui_broadcast_loop():
+    """Start the UI broadcast task if it is not already running."""
+    global _ui_broadcast_task
+    if _ui_broadcast_task is None or _ui_broadcast_task.done():
+        _ui_broadcast_task = asyncio.create_task(_ui_broadcast_loop())
+
+
+def _stop_ui_broadcast_loop():
+    """Cancel the UI broadcast task when no clients remain."""
+    global _ui_broadcast_task
+    if _ui_broadcast_task is not None and not _ui_broadcast_task.done():
+        _ui_broadcast_task.cancel()
+    _ui_broadcast_task = None
 
 
 def make_app(runtime_server: Optional[BaseFieldServer] = None) -> FastAPI:
