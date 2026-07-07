@@ -77,6 +77,9 @@ class LocalModelClient:
 
     async def _render_loop(self):
         while self._running:
-            snapshot = self.model.to_snapshot()
-            self.renderer.render(snapshot)
+            # The base_field received from the server already has modulations
+            # (master_gain, f1_offset, partial_gain_offsets) applied by the
+            # server's ModelState.to_snapshot(). Render it directly — do not
+            # call our own to_snapshot() again, which would double-apply.
+            self.renderer.render(self.model.base_field)
             await asyncio.sleep(0.01)

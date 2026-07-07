@@ -46,7 +46,9 @@ async def main():
     main_loop = asyncio.get_running_loop()
     set_ui_loop(main_loop)
 
-    renderer = PythonSounddeviceRenderer(sr=48000, block_size=512)
+    device_str = os.getenv("NH_DEVICE", "").strip()
+    device = int(device_str) if device_str else None
+    renderer = PythonSounddeviceRenderer(sr=48000, block_size=512, device=device)
     client = LocalModelClient(uri=f"ws://{runtime_host}:{runtime_port}", renderer=renderer)
 
     async def _toggle_renderer(renderer_name: str) -> None:
