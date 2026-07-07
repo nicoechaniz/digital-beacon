@@ -39,6 +39,16 @@ _renderer_changed_callback: Optional[RendererCallback] = None
 # Optional callback for launchpad LED / external mirroring of controls (set by main)
 _launchpad_control_handler: Optional[Callable[[Dict[str, Any]], None]] = None
 
+# Event loop running the UI server (captured on first use for thread-safe scheduling)
+_ui_loop: Optional[asyncio.AbstractEventLoop] = None
+
+def _set_ui_loop() -> None:
+    global _ui_loop
+    try:
+        _ui_loop = asyncio.get_running_loop()
+    except RuntimeError:
+        pass
+
 
 def set_runtime_server(server: BaseFieldServer) -> None:
     global _runtime_server
@@ -302,32 +312,30 @@ def broadcast_control_event(payload: Dict[str, Any]) -> None:
 
     Safe to call from any thread (uses threadsafe scheduling when needed).
     """
+    _set_ui_loop()
     if not _ui_clients:
         return
     msg = TransportMessage("control_event", payload)
     payload_json = msg.to_json()
     disconnected = []
-    for client in list(_ui_clients):
-        try:
+
+    def _send() -> None:
+        for client in list(_ui_clients):
             try:
-                # prefer create_task if in event loop thread
                 asyncio.create_task(client.send_text(payload_json))
-            except RuntimeError:
-                # called from other thread: schedule on loop if available
-                loop = None
-                try:
-                    loop = asyncio.get_running_loop()
-                except RuntimeError:
-                    pass
-                if loop:
-                    loop.call_soon_threadsafe(lambda c=client, p=payload_json: asyncio.create_task(c.send_text(p)))
-                else:
-                    # fallback best effort
-                    client.send_text(payload_json)  # may fail, ignore
-        except Exception:
-            disconnected.append(client)
-    for client in disconnected:
-        _ui_clients.discard(client)
+            except Exception:
+                disconnected.append(client)
+        for client in disconnected:
+            _ui_clients.discard(client)
+
+    try:
+        if _ui_loop is not None and asyncio.get_running_loop() is not _ui_loop:
+            _ui_loop.call_soon_threadsafe(_send)
+        else:
+            _send()
+    except RuntimeError:
+        if _ui_loop is not None:
+            _ui_loop.call_soon_threadsafe(_send)
 
 
 def make_app(runtime_server: Optional[BaseFieldServer] = None) -> FastAPI:
