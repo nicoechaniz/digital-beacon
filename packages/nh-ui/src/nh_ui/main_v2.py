@@ -30,7 +30,7 @@ from nh_model import SceneState
 from nh_renderers import PythonSounddeviceRenderer
 from nh_runtime import BaseFieldServer, LocalModelClient
 from nh_ui.launchpad_bridge import LaunchpadBridge
-from nh_ui.scene_api import set_scene_state
+from nh_ui.scene_api import set_scene_state, set_legacy_control_handler
 from nh_ui.server import (
     broadcast_control_event,
     set_launchpad_control_handler,
@@ -90,6 +90,15 @@ async def main():
     set_scene_state(state)  # Wire into /nh/v2/ API endpoints.
 
     # Bridge: WebSocket controls also update SceneState (pads, f1, gain).
+    def _legacy_control(event):
+        # Drive the legacy runtime model so web UI pads produce audio immediately.
+        asyncio.create_task(_apply_to_runtime(event))
+
+    async def _apply_to_runtime(event):
+        runtime.model.apply_control(event)
+        await runtime._broadcast_field()
+
+    set_legacy_control_handler(_legacy_control)
     set_scene_control_handler(state.apply_control)
 
     # Create v1-compatible base field for legacy renderers.
@@ -175,3 +184,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+

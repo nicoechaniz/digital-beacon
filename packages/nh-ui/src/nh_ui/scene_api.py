@@ -6,7 +6,7 @@ analysis display endpoints alongside the existing field-based API.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 from fastapi import HTTPException
 from pathlib import Path
 import os
@@ -20,6 +20,7 @@ from nh_model import SceneState
 
 _scene_state: Optional[SceneState] = None
 _latest_analysis: Optional[Dict[str, Any]] = None
+_legacy_control_handler: Optional[Callable[[Dict[str, Any]], None]] = None
 
 
 def set_scene_state(state: SceneState) -> None:
@@ -29,6 +30,34 @@ def set_scene_state(state: SceneState) -> None:
 
 def get_scene_state() -> Optional[SceneState]:
     return _scene_state
+
+
+def set_legacy_control_handler(handler: Optional[Callable[[Dict[str, Any]], None]]) -> None:
+    """Register a handler that receives legacy-compatible control events for audio."""
+    global _legacy_control_handler
+    _legacy_control_handler = handler
+
+
+def _path_to_pad_event(path: str, value: Any) -> Optional[Dict[str, Any]]:
+    """Convert a v2 path control like sources.shaper.voice_7_toggle to a legacy pad event."""
+    if not path.startswith("sources.shaper.voice_"):
+        return None
+    suffix = path[len("sources.shaper.voice_"):]
+    parts = suffix.split("_", 1)
+    if len(parts) != 2:
+        return None
+    try:
+        n = int(parts[0])
+    except ValueError:
+        return None
+    action = parts[1]
+    if action == "on":
+        return {"type": "pad_on", "value": {"n": n, "vel": int(value * 127) if isinstance(value, (int, float)) else 127}}
+    elif action == "off":
+        return {"type": "pad_off", "value": {"n": n}}
+    elif action == "toggle":
+        return {"type": "pad_toggle", "value": {"n": n, "active": True}}
+    return None
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -124,6 +153,17 @@ def register_scene_routes(app) -> None:
         if _scene_state is None:
             raise HTTPException(status_code=503)
         _scene_state.apply_control(event)
+
+        # Mirror pad controls to the legacy runtime so audio responds immediately.
+        path = event.get("path")
+        if path and _legacy_control_handler is not None:
+            pad_event = _path_to_pad_event(path, event.get("value", 1.0))
+            if pad_event is not None:
+                try:
+                    _legacy_control_handler(pad_event)
+                except Exception:
+                    pass
+
         return {"ok": True}
 
     # Analysis result display
