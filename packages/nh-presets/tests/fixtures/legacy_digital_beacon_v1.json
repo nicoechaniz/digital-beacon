@@ -1,0 +1,11 @@
+{
+  "bands": [
+    {"n": 1, "gain": 1.0, "az": 0.0, "dist": 1.0, "on": 1, "q": 0.5, "freq": 40.0},
+    {"n": 2, "gain": 0.8, "az": 30.0, "dist": 1.5, "on": 1, "q": 0.3},
+    {"n": 3, "gain": 0.6, "az": 60.0, "dist": 2.0, "on": 1, "q": 0.2},
+    {"n": 4, "gain": 0.5, "az": 90.0, "dist": 1.0, "on": 1, "q": 0.1},
+    {"n": 5, "gain": 0.4, "az": 120.0, "dist": 1.0, "on": 0, "q": 0.5}
+  ],
+  "master": 1.0,
+  "migrated_from": "beacon-spatial/configs/luz_de_manana.json"
+}

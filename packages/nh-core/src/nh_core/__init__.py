@@ -6,6 +6,13 @@ from nh_core.math_utils import (
     octave_reduce,
     playable_frequency,
 )
+from nh_core.spatial_contract import (
+    SPATIAL_KEYS,
+    TRANSITIONAL_KEYS,
+    ALLOWED_KEYS,
+    validate_spatial,
+    is_spatial_valid,
+)
 
 __all__ = [
     "HarmonicField",
@@ -17,4 +24,9 @@ __all__ = [
     "freq_for_harmonic",
     "octave_reduce",
     "playable_frequency",
+    "SPATIAL_KEYS",
+    "TRANSITIONAL_KEYS",
+    "ALLOWED_KEYS",
+    "validate_spatial",
+    "is_spatial_valid",
 ]
