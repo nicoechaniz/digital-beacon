@@ -44,6 +44,7 @@ from nh_ui.server import (
     set_ui_loop,
     set_scene_control_handler,
 )
+import time
 import uvicorn
 
 
@@ -181,7 +182,23 @@ async def main():
             except asyncio.CancelledError:
                 break
 
+    async def _advance_envelopes():
+        """Advance shaper envelopes so release phases decay and idle voices are removed."""
+        while True:
+            try:
+                clock = time.time()
+                for sr in state.shapers.values():
+                    sr.advance_envelopes(dt=0.01, clock=clock)
+                    sr.cleanup_released(max_age_s=0.5, clock=clock)
+            except Exception:
+                pass
+            try:
+                await asyncio.sleep(0.01)
+            except asyncio.CancelledError:
+                break
+
     sync_task = asyncio.create_task(_sync_scene_to_runtime())
+    envelope_task = asyncio.create_task(_advance_envelopes())
 
     # Launchpad bridge.
     launchpad = LaunchpadBridge(
@@ -215,14 +232,20 @@ async def main():
         await server.serve()
     finally:
         sync_task.cancel()
+        envelope_task.cancel()
         try:
             await sync_task
+        except asyncio.CancelledError:
+            pass
+        try:
+            await envelope_task
         except asyncio.CancelledError:
             pass
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 

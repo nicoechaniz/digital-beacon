@@ -58,16 +58,21 @@ class ShaperRuntime:
     pan_offset: float = 0.0
     polyphony_mode: str = "steal"
 
-    def voice_on(self, n: int, velocity: float = 1.0, clock: float = 0.0) -> ActiveVoiceState:
-        """Activate a voice. Returns the voice state."""
+    def voice_on(self, n: int, velocity: float = 1.0, clock: float = 0.0, *, sustained: bool = True) -> ActiveVoiceState:
+        """Activate a voice. Returns the voice state.
+
+        By default voices start in the sustain phase (envelope_value=1.0) so pad
+        toggles in the UI produce immediate audible output. Set sustained=False for
+        a normal ADSR-style attack handled by advance_envelopes().
+        """
         if n in self.active_voices:
-            # Voice already active — re-attack.
+            # Voice already active — re-attack / sustain.
             voice = self.active_voices[n]
             voice.velocity = velocity
             voice.note_on = True
             voice.gate = True
-            voice.envelope_phase = "attack"
-            voice.envelope_value = 0.0
+            voice.envelope_phase = "sustain"
+            voice.envelope_value = 1.0
             voice.phase_accum = 0.0
             voice.started_at = clock
             voice.released_at = None
@@ -82,7 +87,9 @@ class ShaperRuntime:
 
         voice = ActiveVoiceState(
             n=n, velocity=velocity, note_on=True, gate=True,
-            envelope_phase="attack", started_at=clock,
+            envelope_phase="sustain" if sustained else "attack",
+            envelope_value=1.0 if sustained else 0.0,
+            started_at=clock,
         )
         self.active_voices[n] = voice
         return voice
@@ -95,6 +102,11 @@ class ShaperRuntime:
             voice.gate = False
             voice.envelope_phase = "release"
             voice.released_at = clock
+            # Instant release for zero-length release envelope.
+            env = self._voice_envelope(n)
+            if env.get("release_s", 0.15) <= 0.0:
+                voice.envelope_value = 0.0
+                del self.active_voices[n]
 
     def voice_toggle(self, n: int, velocity: float = 1.0, clock: float = 0.0) -> bool:
         """Toggle voice n. Returns True if voice is now active."""
@@ -495,16 +507,63 @@ class SceneState:
     def to_base_field(self) -> HarmonicField:
         """Lossy projection to v1 HarmonicField for legacy renderers.
 
-        Applies runtime offsets (f1, gain) so the legacy audio path reflects the
-        current scene state controlled by the v2 UI.
+        Builds the field from the current scene + runtime state so the legacy
+        audio path reflects the v2 UI (f1, gains, shaper active voices, etc.).
         """
-        field = self.scene.project_to_base_field()
-        # Apply beacon runtime offsets. Multiple beacons would need per-partial
-        # attribution; for the current single-beacon scenes this is correct.
-        for br in self.beacons.values():
-            field.f1 += br.f1_offset
-            for partial in field.partials.values():
-                partial.gain *= br.gain_offset
+        from nh_core import HarmonicField as HF, Partial
+
+        # Fundamental frequency from the first beacon + runtime offset.
+        beacons = [s for s in self.scene.sources.values() if isinstance(s, BeaconSource)]
+        br = self.beacons.get(beacons[0].source_id) if beacons else None
+        f1 = (beacons[0].f1 + (br.f1_offset if br else 0.0)) if beacons else 65.0
+        field = HF(f1=f1)
+
+        # Beacon bands as base partials.
+        for beacon in beacons:
+            br = self.beacons.get(beacon.source_id)
+            beacon_gain = (br.gain_offset if br else 1.0) * beacon.master_gain
+            for n, band in beacon.bands.items():
+                if not band.on:
+                    continue
+                field.partials[n] = Partial(
+                    n=n,
+                    gain=band.on * beacon_gain,
+                    spatial={
+                        "az": band.az,
+                        "dist": band.dist,
+                        "q": band.q,
+                        "on": band.on,
+                    },
+                )
+
+        # Overlay active shaper voices, using runtime envelope values.
+        for sid, shaper in self.scene.sources.items():
+            if not isinstance(shaper, ShaperSource):
+                continue
+            sr = self.shapers.get(sid)
+            if sr is None:
+                continue
+            for n, voice in sr.active_voices.items():
+                if voice.envelope_value <= 0.0:
+                    continue
+                # Determine base voice params from scene or defaults.
+                sv = shaper.voices.get(n)
+                base_gain = sv.gain if sv else 1.0
+                base_pan = sv.pan if sv else 0.0
+                base_phase = sv.phase if sv else 0.0
+                effective_gain = base_gain * voice.velocity * voice.envelope_value * sr.gain_offset
+                if n in field.partials:
+                    field.partials[n].gain = effective_gain
+                    field.partials[n].pan = base_pan
+                    field.partials[n].phase = base_phase
+                else:
+                    field.partials[n] = Partial(
+                        n=n,
+                        gain=effective_gain,
+                        pan=base_pan,
+                        phase=base_phase,
+                    )
+
         return field
 
     # ── Global controls ───────────────────────────────────────────────────
@@ -554,4 +613,6 @@ class SceneState:
             sensor_influence=d.get("sensor_influence", 1.0),
             sensor_sources=d.get("sensor_sources", {}),
         )
+
+
 
