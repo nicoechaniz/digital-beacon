@@ -16,6 +16,7 @@ from nh_analysis.result import (
     EmotionResult,
     SpeakerResult,
 )
+from nh_analysis.catalog import SampleCatalog, SampleEntry
 
 __all__ = [
     "F0Estimator",
@@ -35,4 +36,6 @@ __all__ = [
     "PhideusDescriptors",
     "EmotionResult",
     "SpeakerResult",
+    "SampleCatalog",
+    "SampleEntry",
 ]
