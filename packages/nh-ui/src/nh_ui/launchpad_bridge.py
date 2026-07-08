@@ -51,10 +51,12 @@ class LaunchpadBridge:
         stride: int = 16,
         split_mode: bool = True,
         midi: Any = _AUTODETECT,
+        scene_control_handler: Optional[Callable[[dict], None]] = None,
     ):
         self._client = client
         self._loop = loop
         self._broadcast = broadcast
+        self._scene_control_handler = scene_control_handler
         # Unset -> use the real mido backend; explicit None -> no MIDI at all.
         self._midi = mido if midi is _AUTODETECT else midi
         self._stride = stride
@@ -74,23 +76,32 @@ class LaunchpadBridge:
         inert and the rest of the system keeps running.
         """
         if self._midi is None:
+            print("[launchpad] no MIDI backend available")
             return False
         try:
             self.adapter = LaunchpadAdapter(
                 stride=self._stride, split_mode=self._split_mode, callback=self._relay
             )
-            in_name = self._first_port(self._midi.get_input_names())
-            out_name = self._first_port(self._midi.get_output_names())
+            input_names = self._midi.get_input_names()
+            output_names = self._midi.get_output_names()
+            print(f"[launchpad] MIDI inputs: {input_names}")
+            print(f"[launchpad] MIDI outputs: {output_names}")
+            in_name = self._first_port(input_names)
+            out_name = self._first_port(output_names)
+            print(f"[launchpad] selected input={in_name}, output={out_name}")
             if in_name:
                 self.in_port = self._midi.open_input(in_name)
             if out_name:
                 self.out_port = self._midi.open_output(out_name)
-        except Exception:
+        except Exception as e:
+            print(f"[launchpad] failed to open MIDI ports: {e}")
             self._teardown_ports()
             self.adapter = None
             return False
         if self.in_port is None:
+            print("[launchpad] no MIDI input port found")
             return False
+        print(f"[launchpad] reading from {self.in_port}")
         self._stop.clear()
         self._thread = threading.Thread(
             target=self._reader, name="nh-ui-launchpad", daemon=True
@@ -122,6 +133,11 @@ class LaunchpadBridge:
                 pass
             try:
                 self._broadcast(payload)
+            except Exception:
+                pass
+            try:
+                if self._scene_control_handler is not None:
+                    self._scene_control_handler(payload)
             except Exception:
                 pass
 
@@ -173,8 +189,9 @@ class LaunchpadBridge:
                 event = self.adapter.on_midi_message(msg) if self.adapter else None
                 if event is not None:
                     self._drive_led(event)
-        except Exception:
-            pass
+                    self._relay(event)
+        except Exception as e:
+            print(f"[launchpad] reader error: {e}")
 
     def _clear_leds(self) -> None:
         if self.out_port is None or self._midi is None:
@@ -192,9 +209,19 @@ class LaunchpadBridge:
             for name in names:
                 if forced in name:
                     return name
+            # If forced env var is set but no exact match, allow partial match.
+            for name in names:
+                if forced.lower() in name.lower():
+                    return name
         for name in names:
             if _looks_like_launchpad(name):
                 return name
+        # Fallback: prefer any non-virtual MIDI port with both input and output.
+        for name in names:
+            lower = name.lower()
+            if "through" in lower or "virtual" in lower or "dummy" in lower:
+                continue
+            return name
         return None
 
     def _teardown_ports(self) -> None:
@@ -206,3 +233,4 @@ class LaunchpadBridge:
                     pass
         self.in_port = None
         self.out_port = None
+

@@ -205,9 +205,13 @@ async def main():
 
     # Launchpad bridge.
     launchpad = LaunchpadBridge(
-        client=client, loop=main_loop, broadcast=broadcast_control_event
+        client=client,
+        loop=main_loop,
+        broadcast=broadcast_control_event,
+        scene_control_handler=state.apply_control,
     )
-    launchpad.start()
+    attached = launchpad.start()
+    print(f"[main_v2] Launchpad bridge attached: {attached}")
     set_launchpad_control_handler(launchpad.on_control_event)
 
     print("""
@@ -248,6 +252,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 

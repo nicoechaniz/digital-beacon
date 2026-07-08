@@ -13,7 +13,7 @@ const SCENE_URL = '/nh/v2/scene';
 const CONTROL_URL = '/nh/v2/scene/control';
 const PRESETS_URL = '/nh/v2/presets';
 const ANALYSIS_URL = '/nh/v2/analysis';
-const WS_URL = `ws://${window.location.host}/nh/v1/ws`;
+const WS_URL = `ws://127.0.0.1:8765/nh/v1/ws`;
 
 let currentScene: SceneSnapshot | null = null;
 let refreshTimer: number | null = null;
