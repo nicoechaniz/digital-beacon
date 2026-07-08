@@ -5,6 +5,9 @@ from nh_ui.scene_api import (
     get_scene_state,
 )
 
+# Wire scene routes into the FastAPI app (Phase 8 — scene-aware UI).
+register_scene_routes(app)
+
 __all__ = [
     "app",
     "make_app",

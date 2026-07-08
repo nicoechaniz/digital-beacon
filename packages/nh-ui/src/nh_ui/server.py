@@ -46,6 +46,9 @@ _renderer_changed_callback: Optional[RendererCallback] = None
 # Optional callback for launchpad LED / external mirroring of controls (set by main)
 _launchpad_control_handler: Optional[Callable[[Dict[str, Any]], None]] = None
 
+# Optional callback to forward controls to SceneState (set by main_v2)
+_scene_control_handler: Optional[Callable[[Dict[str, Any]], None]] = None
+
 # Event loop running the UI server. Captured so control-event broadcasts issued
 # from other threads (e.g. the Launchpad MIDI reader) can be scheduled safely.
 _ui_loop: Optional[asyncio.AbstractEventLoop] = None
@@ -81,6 +84,12 @@ def set_launchpad_control_handler(handler: Optional[Callable[[Dict[str, Any]], N
     """Register handler for control events (e.g. to drive Launchpad LED feedback from any source)."""
     global _launchpad_control_handler
     _launchpad_control_handler = handler
+
+
+def set_scene_control_handler(handler: Optional[Callable[[Dict[str, Any]], None]]) -> None:
+    """Register handler to forward controls to SceneState (set by main_v2)."""
+    global _scene_control_handler
+    _scene_control_handler = handler
 
 
 def get_renderer_selection() -> str:
@@ -276,9 +285,13 @@ async def _handle_client_message(websocket, runtime: BaseFieldServer, msg: Trans
             else:
                 await websocket.send_text(TransportMessage("error", {"code": "invalid_renderer", "message": f"renderer {selected} not available"}).to_json())
             return
-        # Pad events (pad_on/pad_off/pad_toggle) map to partial gains inside the
-        # model, so physical-controller and web-originated controls behave the same.
+        # Controls flow to both v1 model (legacy renderer) and SceneState (v2).
         runtime.model.apply_control(msg.payload)
+        if _scene_control_handler is not None:
+            try:
+                _scene_control_handler(msg.payload)
+            except Exception:
+                pass
         # Drive launchpad handler (for LED feedback from UI-initiated controls like panic)
         if _launchpad_control_handler is not None:
             try:
