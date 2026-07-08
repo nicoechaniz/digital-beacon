@@ -1,0 +1,139 @@
+"""Scene-aware API routes for NaturalHarmony UI (Phase 8).
+
+Adds scene inspection, preset v2 load/save, source mixer, and
+analysis display endpoints alongside the existing field-based API.
+"""
+
+from __future__ import annotations
+
+from typing import Any, Dict, List, Optional
+from fastapi import HTTPException
+from pathlib import Path
+import os
+
+from nh_core import HarmonicScene
+from nh_presets import PresetV2, load_v2, save_v2, validate_v2
+from nh_model import SceneState
+
+
+# ── Scene state holder (global, set by main) ──────────────────────────────────
+
+_scene_state: Optional[SceneState] = None
+
+
+def set_scene_state(state: SceneState) -> None:
+    global _scene_state
+    _scene_state = state
+
+
+def get_scene_state() -> Optional[SceneState]:
+    return _scene_state
+
+
+# ── Routes ────────────────────────────────────────────────────────────────────
+
+
+def register_scene_routes(app) -> None:
+    """Register scene-aware routes on the FastAPI app."""
+
+    # Scene preset list
+    @app.get("/nh/v2/presets")
+    async def list_scene_presets() -> List[Dict[str, Any]]:
+        from nh_presets import load_v2 as loader
+        presets = []
+        data_dir = Path(os.getenv("NH_DATA_DIR",
+                                  str(Path(__file__).resolve().parents[4] / "data")))
+        presets_dir = Path(os.getenv("NH_PRESETS_DIR",
+                                     str(data_dir / "migrated_presets")))
+        if not presets_dir.exists():
+            return []
+        for path in sorted(presets_dir.glob("*.json")):
+            try:
+                p = loader(str(path))
+                n_sources = len(p.scene.sources)
+                source_types = [s.kind for s in p.scene.sources.values()]
+                presets.append({
+                    "id": path.stem,
+                    "name": p.metadata.get("name", path.stem),
+                    "version": p.version,
+                    "n_sources": n_sources,
+                    "source_types": source_types,
+                })
+            except Exception as e:
+                presets.append({"id": path.stem, "error": str(e)})
+        return presets
+
+    # Scene preset detail
+    @app.get("/nh/v2/presets/{preset_id}")
+    async def get_scene_preset(preset_id: str):
+        data_dir = Path(os.getenv("NH_DATA_DIR",
+                                  str(Path(__file__).resolve().parents[4] / "data")))
+        presets_dir = Path(os.getenv("NH_PRESETS_DIR",
+                                     str(data_dir / "migrated_presets")))
+        path = presets_dir / f"{preset_id}.json"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="preset not found")
+        try:
+            p = load_v2(str(path))
+            return p.to_dict()
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    # Scene snapshot
+    @app.get("/nh/v2/scene")
+    async def get_scene():
+        if _scene_state is None:
+            raise HTTPException(status_code=503, detail="scene state not available")
+        return _scene_state.scene_snapshot()
+
+    # Source mixer control
+    @app.post("/nh/v2/scene/sources/{source_id}/mute")
+    async def toggle_mute(source_id: str, data: Dict[str, Any]):
+        if _scene_state is None:
+            raise HTTPException(status_code=503)
+        mute = data.get("mute", False)
+        # Apply gain = 0 for mute, 1 for unmute.
+        if source_id in _scene_state.beacons:
+            _scene_state.beacons[source_id].gain_offset = 0.0 if mute else 1.0
+        elif source_id in _scene_state.shapers:
+            _scene_state.shapers[source_id].gain_offset = 0.0 if mute else 1.0
+        elif source_id in _scene_state.samples:
+            _scene_state.samples[source_id].gain_offset = 0.0 if mute else 1.0
+        else:
+            raise HTTPException(status_code=404, detail="source not found")
+        return {"ok": True, "source_id": source_id, "mute": mute}
+
+    # Source solo
+    @app.post("/nh/v2/scene/sources/{source_id}/solo")
+    async def toggle_solo(source_id: str, data: Dict[str, Any]):
+        if _scene_state is None:
+            raise HTTPException(status_code=503)
+        solo = data.get("solo", False)
+        for sid, br in _scene_state.beacons.items():
+            br.gain_offset = (1.0 if sid == source_id else 0.0) if solo else 1.0
+        for sid, sr in _scene_state.shapers.items():
+            sr.gain_offset = (1.0 if sid == source_id else 0.0) if solo else 1.0
+        for sid, sm in _scene_state.samples.items():
+            sm.gain_offset = (1.0 if sid == source_id else 0.0) if solo else 1.0
+        return {"ok": True, "source_id": source_id, "solo": solo}
+
+    # Scene control (path-based)
+    @app.post("/nh/v2/scene/control")
+    async def scene_control(event: Dict[str, Any]):
+        if _scene_state is None:
+            raise HTTPException(status_code=503)
+        _scene_state.apply_control(event)
+        return {"ok": True}
+
+    # Analysis result display
+    @app.get("/nh/v2/analysis/{sample_id}")
+    async def get_analysis(sample_id: str):
+        data_dir = Path(os.getenv("NH_DATA_DIR",
+                                  str(Path(__file__).resolve().parents[4] / "data")))
+        analysis_dir = data_dir / "analysis"
+        path = analysis_dir / f"{sample_id}.json"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="analysis not found")
+        import json
+        with open(path, "r") as f:
+            return json.load(f)
