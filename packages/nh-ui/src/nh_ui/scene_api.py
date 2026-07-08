@@ -11,7 +11,7 @@ from fastapi import HTTPException
 from pathlib import Path
 import os
 
-from nh_core import HarmonicScene
+from nh_core import BeaconSource, HarmonicScene
 from nh_presets import PresetV2, load_v2, save_v2, validate_v2
 from nh_model import SceneState
 
@@ -19,6 +19,7 @@ from nh_model import SceneState
 # ── Scene state holder (global, set by main) ──────────────────────────────────
 
 _scene_state: Optional[SceneState] = None
+_latest_analysis: Optional[Dict[str, Any]] = None
 
 
 def set_scene_state(state: SceneState) -> None:
@@ -126,6 +127,43 @@ def register_scene_routes(app) -> None:
         return {"ok": True}
 
     # Analysis result display
+    @app.get("/nh/v2/analysis")
+    async def get_latest_analysis():
+        return {"analysis": _latest_analysis}
+
+    @app.post("/nh/v2/analysis/mock")
+    async def set_mock_analysis(data: Dict[str, Any]):
+        """Store a UI-testable analysis result.
+
+        This is the integration seam for the real analyzer: callers can submit an
+        AnalysisResult-shaped payload and the UI renders it immediately.
+        """
+        global _latest_analysis
+        _latest_analysis = {
+            "audio_path": data.get("audio_path", "mock://field-recording.wav"),
+            "duration_s": float(data.get("duration_s", 3.0)),
+            "f0_track": data.get("f0_track", {"f0_mean": 110.0, "voiced_fraction": 0.9}),
+            "phideus": data.get("phideus", {"h_series": {"concentration": 0.72, "deviation": 0.08}}),
+            "proposed_f1": float(data.get("proposed_f1", 55.0)),
+            "sample_source": data.get("sample_source", {"source_id": "field_recording", "kind": "sample"}),
+        }
+        return {"ok": True, "analysis": _latest_analysis}
+
+    @app.post("/nh/v2/analysis/apply-proposed-f1")
+    async def apply_proposed_f1():
+        if _scene_state is None:
+            raise HTTPException(status_code=503, detail="scene state not available")
+        if not _latest_analysis or _latest_analysis.get("proposed_f1") is None:
+            raise HTTPException(status_code=404, detail="analysis proposed_f1 not available")
+        proposed = float(_latest_analysis["proposed_f1"])
+        for sid, source in _scene_state.scene.sources.items():
+            if isinstance(source, BeaconSource):
+                source.f1 = proposed
+                if sid in _scene_state.beacons:
+                    _scene_state.beacons[sid].f1_offset = 0.0
+                return {"ok": True, "source_id": sid, "f1": proposed}
+        raise HTTPException(status_code=404, detail="beacon source not found")
+
     @app.get("/nh/v2/analysis/{sample_id}")
     async def get_analysis(sample_id: str):
         data_dir = Path(os.getenv("NH_DATA_DIR",

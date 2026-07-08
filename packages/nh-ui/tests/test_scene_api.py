@@ -1,5 +1,6 @@
 """Tests for scene-aware API routes (Phase 8)."""
 import pytest
+from fastapi.testclient import TestClient
 
 from nh_core import (
     HarmonicScene,
@@ -76,3 +77,36 @@ def test_scene_snapshot_shaper_voices():
     shaper_snap = snap["sources"]["shaper"]
     assert shaper_snap["runtime"]["voice_count"] == 2
     assert "5" in shaper_snap["runtime"]["active_voices"]
+
+
+
+def test_analysis_mock_and_apply_proposed_f1():
+    from nh_ui import app
+    from nh_ui.scene_api import set_scene_state
+
+    scene = HarmonicScene(sources={"beacon": BeaconSource(source_id="beacon", f1=65.0)})
+    set_scene_state(SceneState(scene=scene))
+    client = TestClient(app)
+
+    payload = {
+        "audio_path": "demo.wav",
+        "duration_s": 2.5,
+        "f0_track": {"f0_mean": 110.0, "voiced_fraction": 0.8},
+        "phideus": {"h_series": {"concentration": 0.7}},
+        "proposed_f1": 55.0,
+    }
+    r = client.post("/nh/v2/analysis/mock", json=payload)
+    assert r.status_code == 200
+    assert r.json()["analysis"]["proposed_f1"] == 55.0
+
+    r = client.get("/nh/v2/analysis")
+    assert r.status_code == 200
+    assert r.json()["analysis"]["f0_track"]["f0_mean"] == 110.0
+
+    r = client.post("/nh/v2/analysis/apply-proposed-f1")
+    assert r.status_code == 200
+    assert r.json()["f1"] == 55.0
+    scene = client.get("/nh/v2/scene").json()
+    assert scene["sources"]["beacon"]["f1"] == 55.0
+
+    set_scene_state(None)

@@ -1,6 +1,7 @@
 import {
   renderAppShell,
   renderScene,
+  renderAnalysis,
   renderStatus,
   appendLog,
   bindShellHandlers,
@@ -11,6 +12,7 @@ import './style.css';
 const SCENE_URL = '/nh/v2/scene';
 const CONTROL_URL = '/nh/v2/scene/control';
 const PRESETS_URL = '/nh/v2/presets';
+const ANALYSIS_URL = '/nh/v2/analysis';
 
 let currentScene: SceneSnapshot | null = null;
 let refreshTimer: number | null = null;
@@ -94,6 +96,38 @@ async function loadPresets(): Promise<void> {
   }
 }
 
+async function loadAnalysis(): Promise<void> {
+  try {
+    const payload = await fetchJSON<{ analysis: any | null }>(ANALYSIS_URL);
+    renderAnalysis(payload.analysis);
+  } catch (err) {
+    appendLog(`Analysis fetch failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function loadMockAnalysis(): Promise<void> {
+  await fetchJSON<{ ok: boolean; analysis: any }>(`${ANALYSIS_URL}/mock`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      audio_path: 'field-recording-demo.wav',
+      duration_s: 4.2,
+      f0_track: { f0_mean: 110.0, voiced_fraction: 0.87 },
+      phideus: { h_series: { concentration: 0.72, deviation: 0.08 } },
+      proposed_f1: 55.0,
+      sample_source: { source_id: 'field_recording_demo', kind: 'sample' },
+    }),
+  });
+  appendLog('loaded mock analysis result');
+  await loadAnalysis();
+}
+
+async function applyProposedF1(): Promise<void> {
+  const result = await fetchJSON<{ ok: boolean; f1: number }>(`${ANALYSIS_URL}/apply-proposed-f1`, { method: 'POST' });
+  appendLog(`applied proposed f1 = ${result.f1} Hz`);
+  await Promise.all([loadScene(), loadAnalysis()]);
+}
+
 async function main(): Promise<void> {
   renderAppShell();
   bindShellHandlers({
@@ -102,9 +136,11 @@ async function main(): Promise<void> {
     onTypedControl: sendTypedControl,
     onMuteSource: muteSource,
     onSoloSource: soloSource,
+    onMockAnalysis: loadMockAnalysis,
+    onApplyProposedF1: applyProposedF1,
   });
 
-  await Promise.all([loadScene(), loadPresets()]);
+  await Promise.all([loadScene(), loadPresets(), loadAnalysis()]);
   refreshTimer = window.setInterval(loadScene, 1500);
   window.addEventListener('beforeunload', () => {
     if (refreshTimer !== null) window.clearInterval(refreshTimer);
@@ -115,3 +151,4 @@ main().catch((err) => {
   renderStatus('error', 'boot failed');
   appendLog(`Boot failed: ${err instanceof Error ? err.message : String(err)}`);
 });
+

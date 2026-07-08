@@ -11,12 +11,23 @@ export interface SceneSnapshot {
   metadata?: Record<string, unknown>;
 }
 
+export interface AnalysisSnapshot {
+  audio_path?: string;
+  duration_s?: number;
+  f0_track?: { f0_mean?: number; voiced_fraction?: number };
+  phideus?: { h_series?: Record<string, unknown>; v4_linear?: Record<string, unknown>; v4_log?: Record<string, unknown> };
+  proposed_f1?: number;
+  sample_source?: Record<string, unknown>;
+}
+
 interface ShellHandlers {
   onRefresh: () => void | Promise<void>;
   onControl: (path: string, value: unknown) => void | Promise<void>;
   onTypedControl: (type: string, value: unknown) => void | Promise<void>;
   onMuteSource: (sourceId: string, mute: boolean) => void | Promise<void>;
   onSoloSource: (sourceId: string) => void | Promise<void>;
+  onMockAnalysis: () => void | Promise<void>;
+  onApplyProposedF1: () => void | Promise<void>;
 }
 
 type StatusKind = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -74,6 +85,10 @@ export function renderAppShell(): void {
 
       <section id="analysis-panel" class="panel analysis-panel">
         <div class="panel-heading"><h2>Analysis / Field Recordings</h2><span>upload → analyze → source</span></div>
+        <div class="analysis-actions">
+          <button id="mock-analysis-button" type="button">Load mock analysis</button>
+          <button id="apply-proposed-f1-button" type="button">Apply proposed f1</button>
+        </div>
         <div class="analysis-grid">
           <div id="analysis-f0" class="metric-card"><b>F0</b><span>waiting for analysis</span></div>
           <div id="analysis-phideus" class="metric-card"><b>Phideus</b><span>waiting for descriptors</span></div>
@@ -111,6 +126,8 @@ export function appendLog(message: string): void {
 export function bindShellHandlers(handlers: ShellHandlers): void {
   document.getElementById('refresh-button')?.addEventListener('click', () => handlers.onRefresh());
   document.getElementById('panic-button')?.addEventListener('click', () => handlers.onTypedControl('panic', true));
+  document.getElementById('mock-analysis-button')?.addEventListener('click', () => handlers.onMockAnalysis());
+  document.getElementById('apply-proposed-f1-button')?.addEventListener('click', () => handlers.onApplyProposedF1());
   document.getElementById('launchpad-grid')?.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement;
     const pad = target.closest<HTMLButtonElement>('.pad-button');
@@ -147,6 +164,36 @@ export function renderScene(scene: SceneSnapshot): void {
   renderSpatial(scene);
   renderProcessing(scene);
   renderModulation(scene);
+}
+
+export function renderAnalysis(analysis: AnalysisSnapshot | null): void {
+  const f0 = document.getElementById('analysis-f0');
+  const phideus = document.getElementById('analysis-phideus');
+  const proposed = document.getElementById('analysis-proposed-f1');
+  const samples = document.getElementById('samples-panel');
+  if (!analysis) {
+    if (f0) f0.innerHTML = '<b>F0</b><span>waiting for analysis</span>';
+    if (phideus) phideus.innerHTML = '<b>Phideus</b><span>waiting for descriptors</span>';
+    if (proposed) proposed.innerHTML = '<b>Proposed f1</b><span>waiting for recording</span>';
+    if (samples) samples.textContent = 'Sample workflow will appear here.';
+    return;
+  }
+  const f0Mean = analysis.f0_track?.f0_mean;
+  const voiced = analysis.f0_track?.voiced_fraction;
+  const hSeries = analysis.phideus?.h_series || {};
+  const concentration = (hSeries as any).concentration;
+  if (f0) f0.innerHTML = `<b>F0</b><span>${formatNumber(f0Mean)} Hz · voiced ${formatNumber((voiced ?? 0) * 100)}%</span>`;
+  if (phideus) phideus.innerHTML = `<b>Phideus</b><span>H concentration ${formatNumber(concentration)}</span>`;
+  if (proposed) proposed.innerHTML = `<b>Proposed f1</b><span>${formatNumber(analysis.proposed_f1)} Hz</span>`;
+  if (samples) {
+    samples.classList.remove('empty-note');
+    samples.innerHTML = `
+      <article class="mini-card" id="analysis-sample-card">
+        <b>${escapeHtml(analysis.audio_path || 'field recording')}</b>
+        <span>${formatNumber(analysis.duration_s)} s · proposed source ${escapeHtml((analysis.sample_source as any)?.source_id || 'sample')}</span>
+      </article>
+    `;
+  }
 }
 
 function renderSources(scene: SceneSnapshot): void {
@@ -340,3 +387,4 @@ function escapeHtml(value: unknown): string {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
 }
+

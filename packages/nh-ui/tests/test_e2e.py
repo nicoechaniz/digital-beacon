@@ -263,6 +263,29 @@ def test_v2_shaper_pad_and_panic(server_url: str) -> None:
         assert result["beaconBands"] == 32
 
 
+def test_v2_analysis_workflow_loads_and_applies_proposed_f1(server_url: str) -> None:
+    for page in _page(server_url):
+        page.goto(server_url)
+        page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.locator("#mock-analysis-button").click()
+        page.wait_for_function(
+            """() => document.querySelector('#analysis-f0')?.textContent?.includes('110 Hz')""",
+            timeout=10_000,
+        )
+        assert "H concentration 0.72" in (page.text_content("#analysis-phideus") or "")
+        assert "55.00 Hz" in (page.text_content("#analysis-proposed-f1") or "")
+        assert page.locator("#analysis-sample-card").count() == 1
+
+        page.locator("#apply-proposed-f1-button").click()
+        page.wait_for_function(
+            """async () => {
+                const data = await (await fetch('/nh/v2/scene')).json();
+                return data.sources.beacon.f1 === 55;
+            }""",
+            timeout=10_000,
+        )
+
+
 def test_v2_shell_screenshot(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
@@ -271,6 +294,7 @@ def test_v2_shell_screenshot(server_url: str) -> None:
         page.screenshot(path=out, full_page=True)
         assert Path(out).exists()
         assert Path(out).stat().st_size > 10_000
+
 
 
 
