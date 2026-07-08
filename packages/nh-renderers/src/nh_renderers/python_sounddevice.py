@@ -1,5 +1,5 @@
 import numpy as np
-from typing import Any, Dict, Optional
+from typing import Any, Callable, Dict, Optional
 
 from nh_core import HarmonicField, RendererCapabilities
 from nh_renderers.renderer import Renderer
@@ -12,7 +12,8 @@ class PythonSounddeviceRenderer(Renderer):
     It synthesizes each partial as a sine wave with pan and phase.
     """
 
-    def __init__(self, sr: int = 48000, block_size: int = 512, device: Optional[int] = None):
+    def __init__(self, sr: int = 48000, block_size: int = 512, device: Optional[int] = None,
+                 sample_callback: Optional[Callable[[int], np.ndarray]] = None):
         self.sr = sr
         self.block_size = block_size
         self.device = device
@@ -20,6 +21,7 @@ class PythonSounddeviceRenderer(Renderer):
         self._running = False
         self._last_field: Optional[HarmonicField] = None
         self._phase = 0.0
+        self.sample_callback = sample_callback
 
     def start(self) -> None:
         import sounddevice as sd
@@ -81,6 +83,22 @@ class PythonSounddeviceRenderer(Renderer):
         # already bounded to [-1, 1]; this only guards against numerical edge cases.
         np.clip(out, -1.0, 1.0, out=out)
         outdata[:] = out
+        # Mix sample playback (e.g. beacon file) if configured.
+        if self.sample_callback is not None:
+            try:
+                sample_out = self.sample_callback(frames)
+                if sample_out is not None:
+                    if sample_out.ndim == 1:
+                        sample_out = sample_out.reshape(-1, 1)
+                    if sample_out.shape[1] == 1:
+                        outdata[:] += 0.5 * sample_out
+                        outdata[:] += 0.5 * sample_out
+                    elif sample_out.shape[1] >= 2:
+                        outdata[:, 0] += sample_out[:, 0]
+                        outdata[:, 1] += sample_out[:, 1]
+                    np.clip(outdata, -1.0, 1.0, out=outdata)
+            except Exception:
+                pass
 
     @property
     def is_running(self) -> bool:

@@ -14,6 +14,7 @@ Usage:
     python -m nh_ui.main_v2
 """
 
+import argparse
 import asyncio
 import os
 
@@ -27,7 +28,11 @@ from nh_core import (
     Partial,
 )
 from nh_model import SceneState
-from nh_renderers import PythonSounddeviceRenderer
+from nh_renderers import (
+    CompositeRenderer,
+    PythonSounddeviceRenderer,
+    SuperColliderOSCAdapter,
+)
 from nh_runtime import BaseFieldServer, LocalModelClient
 from nh_ui.launchpad_bridge import LaunchpadBridge
 from nh_ui.scene_api import set_scene_state, set_legacy_control_handler
@@ -81,6 +86,12 @@ def scene_to_base_field(scene: HarmonicScene) -> HarmonicField:
 
 
 async def main():
+    parser = argparse.ArgumentParser(description="NaturalHarmony v2 scene runtime")
+    parser.add_argument("--beacon-osc", default=os.getenv("NH_BEACON_OSC", ""),
+                        help="SuperCollider OSC address as host:port (e.g. 127.0.0.1:57120). Enables SC beacon file.")
+    parser.add_argument("--no-shaper", action="store_true", help="Disable local Python sounddevice shaper audio")
+    args = parser.parse_args()
+
     runtime_host = os.getenv("NH_RUNTIME_HOST", "127.0.0.1")
     runtime_port = int(os.getenv("NH_RUNTIME_PORT", "8765"))
 
@@ -129,10 +140,21 @@ async def main():
     main_loop = asyncio.get_running_loop()
     set_ui_loop(main_loop)
 
-    # Audio renderer.
+    # Audio renderers.
     device_str = os.getenv("NH_DEVICE", "").strip()
     device = int(device_str) if device_str else None
-    renderer = PythonSounddeviceRenderer(sr=48000, block_size=512, device=device)
+
+    renderers = []
+    if not args.no_shaper:
+        renderers.append(PythonSounddeviceRenderer(sr=48000, block_size=512, device=device))
+
+    sc_adapter = None
+    if args.beacon_osc:
+        host, port = args.beacon_osc.rsplit(":", 1)
+        sc_adapter = SuperColliderOSCAdapter(host=host, port=int(port), max_partials=32)
+        renderers.append(sc_adapter)
+
+    renderer = CompositeRenderer(renderers) if len(renderers) > 1 else renderers[0]
     client = LocalModelClient(
         uri=f"ws://{runtime_host}:{runtime_port}", renderer=renderer
     )
@@ -145,6 +167,21 @@ async def main():
 
     set_renderer_changed_callback(_toggle_renderer)
     await client.start()
+
+    # Synchronise SceneState into the legacy runtime model so OSC/sounddevice renderers
+    # follow the v2 scene (f1, bands, spatial controls, shaper voices).
+    async def _sync_scene_to_runtime():
+        while True:
+            try:
+                runtime.model.update_from_base_field(state.to_base_field())
+            except Exception:
+                pass
+            try:
+                await asyncio.sleep(0.05)
+            except asyncio.CancelledError:
+                break
+
+    sync_task = asyncio.create_task(_sync_scene_to_runtime())
 
     # Launchpad bridge.
     launchpad = LaunchpadBridge(
@@ -177,11 +214,15 @@ async def main():
     try:
         await server.serve()
     finally:
-        launchpad.stop()
-        await client.stop()
-        await runtime.stop()
+        sync_task.cancel()
+        try:
+            await sync_task
+        except asyncio.CancelledError:
+            pass
 
 
 if __name__ == "__main__":
     asyncio.run(main())
+
+
 

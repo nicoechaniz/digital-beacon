@@ -1,3 +1,4 @@
+from nh_renderers.composite import CompositeRenderer
 from nh_renderers.python_sounddevice import PythonSounddeviceRenderer
 from nh_renderers.renderer import Renderer
 from nh_renderers.sc_osc import SuperColliderOSCAdapter
@@ -9,6 +10,7 @@ from nh_renderers.scene_adapter import (
 )
 
 __all__ = [
+    "CompositeRenderer",
     "Renderer",
     "PythonSounddeviceRenderer",
     "SuperColliderOSCAdapter",

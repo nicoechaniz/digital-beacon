@@ -493,8 +493,19 @@ class SceneState:
     # ── base_field compat ─────────────────────────────────────────────────
 
     def to_base_field(self) -> HarmonicField:
-        """Lossy projection to v1 HarmonicField for legacy renderers."""
-        return self.scene.project_to_base_field()
+        """Lossy projection to v1 HarmonicField for legacy renderers.
+
+        Applies runtime offsets (f1, gain) so the legacy audio path reflects the
+        current scene state controlled by the v2 UI.
+        """
+        field = self.scene.project_to_base_field()
+        # Apply beacon runtime offsets. Multiple beacons would need per-partial
+        # attribution; for the current single-beacon scenes this is correct.
+        for br in self.beacons.values():
+            field.f1 += br.f1_offset
+            for partial in field.partials.values():
+                partial.gain *= br.gain_offset
+        return field
 
     # ── Global controls ───────────────────────────────────────────────────
 
@@ -543,3 +554,4 @@ class SceneState:
             sensor_influence=d.get("sensor_influence", 1.0),
             sensor_sources=d.get("sensor_sources", {}),
         )
+
