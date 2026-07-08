@@ -13,20 +13,48 @@ from nh_core.spatial_contract import (
     validate_spatial,
     is_spatial_valid,
 )
+from nh_core.scene import (
+    HarmonicScene,
+    BeaconSource,
+    ShaperSource,
+    ShaperVoice,
+    SampleSource,
+    VoiceSource,
+    SpatialBand,
+    ProcessorState,
+    ProcessingChain,
+    LFOState,
+    ModulationRoute,
+)
 
 __all__ = [
+    # Field (v1)
     "HarmonicField",
     "Partial",
     "Residual",
     "Transport",
     "RendererCapabilities",
+    # Math
     "cents_difference",
     "freq_for_harmonic",
     "octave_reduce",
     "playable_frequency",
+    # Spatial contract
     "SPATIAL_KEYS",
     "TRANSITIONAL_KEYS",
     "ALLOWED_KEYS",
     "validate_spatial",
     "is_spatial_valid",
+    # Scene (v2)
+    "HarmonicScene",
+    "BeaconSource",
+    "ShaperSource",
+    "ShaperVoice",
+    "SampleSource",
+    "VoiceSource",
+    "SpatialBand",
+    "ProcessorState",
+    "ProcessingChain",
+    "LFOState",
+    "ModulationRoute",
 ]
