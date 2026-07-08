@@ -9,8 +9,13 @@ from nh_core import HarmonicField
 
 @dataclass
 class ModelState:
-    """Runtime state of a harmonic field with local modulations."""
-    base_field: HarmonicField = dc_field(default_factory=HarmonicField)
+    """Runtime state of a harmonic field with local modulations.
+
+    **LEGACY (Phase 10):** Use ``SceneState`` for new code. ``ModelState`` is
+    retained for backward compatibility with existing renderers and presets.
+    ``base_field`` will be removed in v3.
+    """
+    base_field: HarmonicField = dc_field(default_factory=HarmonicField)  # LEGACY — use SceneState
     # Local modulation accumulators (not stored in base_field)
     master_gain: float = 0.6
     f1_offset: float = 0.0
