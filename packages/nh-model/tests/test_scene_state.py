@@ -343,3 +343,84 @@ def test_modelstate_still_works():
     state = ModelState(base_field=field)
     snapshot = state.to_snapshot()
     assert snapshot.f1 == 65.0
+
+
+# ── Envelope processing (Phase 3) ──────────────────────────────────────────────
+
+def test_envelope_attack_sustain():
+    sr = ShaperRuntime(source_id="test")
+    sr.voice_on(1, 0.8, clock=0.0)
+    v = sr.active_voices[1]
+
+    # At t=0, envelope is in attack.
+    assert v.envelope_phase == "attack"
+    assert v.envelope_value == 0.0
+
+    # Advance past attack (default 0.01s).
+    sr.advance_envelopes(0.02, clock=0.02)
+    assert v.envelope_phase == "sustain"
+    assert v.envelope_value == 1.0
+
+
+def test_envelope_release():
+    sr = ShaperRuntime(source_id="test")
+    sr.voice_on(1, clock=0.0)
+    sr.advance_envelopes(0.02, clock=0.02)  # finish attack
+    sr.voice_off(1, clock=0.02)
+
+    v = sr.active_voices[1]
+    assert v.envelope_phase == "release"
+
+    # Mid-release.
+    sr.advance_envelopes(0.05, clock=0.07)
+    assert 0.0 < v.envelope_value < 1.0
+
+    # Full release.
+    sr.advance_envelopes(0.20, clock=0.27)
+    assert v.envelope_value == 0.0
+
+
+def test_envelope_custom_times():
+    sr = ShaperRuntime(source_id="test")
+    sr.sync_envelopes_from_scene({
+        1: type("V", (), {"envelope": {"attack_s": 0.05, "release_s": 0.3, "shape": 0.0}})(),
+    })
+    sr.voice_on(1, clock=0.0)
+    sr.advance_envelopes(0.02, clock=0.02)
+    v = sr.active_voices[1]
+    # Still in attack (custom 0.05s attack time).
+    assert v.envelope_phase == "attack"
+    assert 0.0 < v.envelope_value < 1.0
+
+    sr.advance_envelopes(0.04, clock=0.06)
+    assert v.envelope_phase == "sustain"
+
+
+def test_voice_gain_computation():
+    sr = ShaperRuntime(source_id="test")
+    sr.gain_offset = 0.8
+    sr.voice_on(1, 0.5, clock=0.0)
+    sr.advance_envelopes(0.02, clock=0.02)  # sustain = 1.0
+    v = sr.active_voices[1]
+    gain = sr.get_voice_gain(v, base_gain=1.0)
+    assert gain == pytest.approx(0.8 * 0.5 * 1.0)  # offset * vel * env
+
+    # During attack (env=0.5).
+    sr.voice_on(1, 1.0, clock=0.0)
+    sr.advance_envelopes(0.005, clock=0.005)
+    v2 = sr.active_voices[1]
+    gain2 = sr.get_voice_gain(v2, base_gain=1.0)
+    assert 0.0 < gain2 < 1.0
+
+
+def test_shaper_voice_phase_continuity():
+    """Phase accumulator is maintained per voice for phase-continuous oscillators."""
+    sr = ShaperRuntime(source_id="test")
+    sr.voice_on(3, clock=0.0)
+    v = sr.active_voices[3]
+    assert v.phase_accum == 0.0
+
+    # Phase would be filled by renderer at sample rate, but the field exists.
+    v.phase_accum = 0.25
+    sr.voice_on(3, clock=1.0)  # re-attack — phase resets
+    assert sr.active_voices[3].phase_accum == 0.0  # fresh attack, fresh phase

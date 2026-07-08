@@ -67,6 +67,8 @@ class ShaperRuntime:
             voice.note_on = True
             voice.gate = True
             voice.envelope_phase = "attack"
+            voice.envelope_value = 0.0
+            voice.phase_accum = 0.0
             voice.started_at = clock
             voice.released_at = None
             return voice
@@ -119,6 +121,78 @@ class ShaperRuntime:
 
     def voice_count(self) -> int:
         return len(self.active_voices)
+
+    def advance_envelopes(self, dt: float, clock: float = 0.0) -> None:
+        """Advance envelope phases for all active voices by dt seconds.
+
+        Default envelope times (can be overridden per voice from the scene):
+          attack: 0.01s, release: 0.15s, shape: 0.0 (linear)
+        """
+        for voice in list(self.active_voices.values()):
+            # Get envelope params from the scene voice definition.
+            env = self._voice_envelope(voice.n)
+            attack_s = env.get("attack_s", 0.01)
+            release_s = env.get("release_s", 0.15)
+            shape = env.get("shape", 0.0)  # 0=linear, 1=exponential
+
+            if voice.envelope_phase == "attack":
+                elapsed = clock - voice.started_at
+                if attack_s > 0:
+                    t = min(elapsed / attack_s, 1.0)
+                    if shape > 0:
+                        voice.envelope_value = t ** (1.0 - shape)  # exponential
+                    else:
+                        voice.envelope_value = t  # linear
+                else:
+                    voice.envelope_value = 1.0
+                if elapsed >= attack_s:
+                    voice.envelope_phase = "sustain"
+                    voice.envelope_value = 1.0
+
+            elif voice.envelope_phase == "sustain":
+                voice.envelope_value = 1.0
+
+            elif voice.envelope_phase == "release":
+                if voice.released_at is not None:
+                    elapsed = clock - voice.released_at
+                    if release_s > 0:
+                        t = max(0.0, 1.0 - elapsed / release_s)
+                        if shape > 0:
+                            voice.envelope_value = t ** (1.0 / (1.0 - shape + 0.001))
+                        else:
+                            voice.envelope_value = t
+                    else:
+                        voice.envelope_value = 0.0
+                if voice.envelope_value <= 0.001:
+                    voice.envelope_value = 0.0
+
+            # Advance phase accumulator for phase-continuous oscillators.
+            if voice.gate:
+                # Phase accumulation from source f1 * n.
+                voice.phase_accum += dt * 0.0  # filled by renderer at sample rate
+
+    def get_voice_gain(self, voice: ActiveVoiceState, base_gain: float = 1.0) -> float:
+        """Compute effective gain: base_gain * velocity * envelope * source offset."""
+        return base_gain * voice.velocity * voice.envelope_value * self.gain_offset
+
+    def _voice_envelope(self, n: int) -> Dict[str, Any]:
+        """Get envelope params for voice n from the scene, or defaults."""
+        # The scene envelope is stored on ShaperVoice; this is accessed
+        # through the SceneState's scene. We store a cached reference.
+        if not hasattr(self, "_env_cache"):
+            self._env_cache: Dict[int, Dict[str, Any]] = {}
+        if n not in self._env_cache:
+            self._env_cache[n] = {"attack_s": 0.01, "release_s": 0.15, "shape": 0.0}
+        return self._env_cache[n]
+
+    def sync_envelopes_from_scene(self, voices: Dict[int, Any]) -> None:
+        """Sync envelope parameters from a ShaperSource's voice definitions."""
+        self._env_cache = {}
+        for n, voice in voices.items():
+            if hasattr(voice, "envelope") and voice.envelope:
+                self._env_cache[n] = dict(voice.envelope)
+            else:
+                self._env_cache[n] = {"attack_s": 0.01, "release_s": 0.15, "shape": 0.0}
 
 
 @dataclass
