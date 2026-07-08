@@ -109,6 +109,35 @@ def register_scene_routes(app) -> None:
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
+    # Scene preset load
+    @app.post("/nh/v2/presets/{preset_id}/load")
+    async def load_scene_preset(preset_id: str):
+        if _scene_state is None:
+            raise HTTPException(status_code=503, detail="scene state not available")
+        data_dir = Path(os.getenv("NH_DATA_DIR",
+                                  str(Path(__file__).resolve().parents[4] / "data")))
+        presets_dir = Path(os.getenv("NH_PRESETS_DIR",
+                                     str(data_dir / "migrated_presets")))
+        path = presets_dir / f"{preset_id}.json"
+        if not path.exists():
+            raise HTTPException(status_code=404, detail="preset not found")
+        try:
+            p = load_v2(str(path))
+            _scene_state.scene = p.scene
+            _scene_state.beacons.clear()
+            _scene_state.shapers.clear()
+            _scene_state.samples.clear()
+            for sid, source in p.scene.sources.items():
+                if isinstance(source, BeaconSource):
+                    _scene_state.beacons[sid] = BeaconRuntime(source_id=sid, vsrate=source.vsrate)
+                elif isinstance(source, ShaperSource):
+                    _scene_state.shapers[sid] = ShaperRuntime(source_id=sid)
+                elif isinstance(source, SampleSource):
+                    _scene_state.samples[sid] = SampleRuntime(source_id=sid, loop=source.loop)
+            return {"ok": True, "preset_id": preset_id}
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
     # Scene snapshot
     @app.get("/nh/v2/scene")
     async def get_scene():
@@ -215,3 +244,4 @@ def register_scene_routes(app) -> None:
         import json
         with open(path, "r") as f:
             return json.load(f)
+

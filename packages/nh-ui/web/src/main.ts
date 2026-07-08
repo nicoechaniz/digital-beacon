@@ -13,9 +13,12 @@ const SCENE_URL = '/nh/v2/scene';
 const CONTROL_URL = '/nh/v2/scene/control';
 const PRESETS_URL = '/nh/v2/presets';
 const ANALYSIS_URL = '/nh/v2/analysis';
+const WS_URL = `ws://${window.location.host}/nh/v1/ws`;
 
 let currentScene: SceneSnapshot | null = null;
 let refreshTimer: number | null = null;
+let ws: WebSocket | null = null;
+let wsReconnectTimer: number | null = null;
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
@@ -128,6 +131,61 @@ async function applyProposedF1(): Promise<void> {
   await Promise.all([loadScene(), loadAnalysis()]);
 }
 
+async function loadPreset(presetId: string): Promise<void> {
+  try {
+    await fetchJSON<{ ok: boolean }>(`${PRESETS_URL}/${encodeURIComponent(presetId)}/load`, { method: 'POST' });
+    appendLog(`loaded preset ${presetId}`);
+    await loadScene();
+  } catch (err) {
+    appendLog(`Preset load failed: ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
+async function connectWebSocket(): Promise<void> {
+  if (ws !== null) return;
+  try {
+    ws = new WebSocket(WS_URL);
+    ws.addEventListener('open', () => {
+      renderStatus('connected', 'websocket live');
+      appendLog('WebSocket connected');
+    });
+    ws.addEventListener('message', (ev) => {
+      try {
+        const msg = JSON.parse(ev.data);
+        if (msg.type === 'control_event') {
+          const payload = msg.payload || {};
+          if (['pad_on', 'pad_off', 'pad_toggle', 'panic'].includes(payload.type)) {
+            // Reflect external control (Launchpad, sensors) in the UI immediately.
+            void loadScene();
+          }
+        }
+      } catch (err) {
+        // ignore malformed messages
+      }
+    });
+    ws.addEventListener('close', () => {
+      renderStatus('connecting', 'websocket closed, retrying');
+      ws = null;
+      scheduleReconnect();
+    });
+    ws.addEventListener('error', () => {
+      renderStatus('error', 'websocket error');
+      ws = null;
+      scheduleReconnect();
+    });
+  } catch (err) {
+    scheduleReconnect();
+  }
+}
+
+function scheduleReconnect(): void {
+  if (wsReconnectTimer !== null) return;
+  wsReconnectTimer = window.setTimeout(() => {
+    wsReconnectTimer = null;
+    void connectWebSocket();
+  }, 1500);
+}
+
 async function main(): Promise<void> {
   renderAppShell();
   bindShellHandlers({
@@ -138,12 +196,16 @@ async function main(): Promise<void> {
     onSoloSource: soloSource,
     onMockAnalysis: loadMockAnalysis,
     onApplyProposedF1: applyProposedF1,
+    onLoadPreset: loadPreset,
   });
 
   await Promise.all([loadScene(), loadPresets(), loadAnalysis()]);
+  void connectWebSocket();
   refreshTimer = window.setInterval(loadScene, 1500);
   window.addEventListener('beforeunload', () => {
     if (refreshTimer !== null) window.clearInterval(refreshTimer);
+    if (wsReconnectTimer !== null) window.clearTimeout(wsReconnectTimer);
+    if (ws !== null) ws.close();
   });
 }
 
@@ -151,4 +213,3 @@ main().catch((err) => {
   renderStatus('error', 'boot failed');
   appendLog(`Boot failed: ${err instanceof Error ? err.message : String(err)}`);
 });
-

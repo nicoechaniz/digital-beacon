@@ -28,6 +28,7 @@ interface ShellHandlers {
   onSoloSource: (sourceId: string) => void | Promise<void>;
   onMockAnalysis: () => void | Promise<void>;
   onApplyProposedF1: () => void | Promise<void>;
+  onLoadPreset?: (presetId: string) => void | Promise<void>;
 }
 
 type StatusKind = 'connected' | 'connecting' | 'disconnected' | 'error';
@@ -128,6 +129,12 @@ export function bindShellHandlers(handlers: ShellHandlers): void {
   document.getElementById('panic-button')?.addEventListener('click', () => handlers.onTypedControl('panic', true));
   document.getElementById('mock-analysis-button')?.addEventListener('click', () => handlers.onMockAnalysis());
   document.getElementById('apply-proposed-f1-button')?.addEventListener('click', () => handlers.onApplyProposedF1());
+  document.getElementById('preset-select')?.addEventListener('change', (ev) => {
+    const target = ev.target as HTMLSelectElement;
+    if (target.value && handlers.onLoadPreset) {
+      handlers.onLoadPreset(target.value);
+    }
+  });
   document.getElementById('launchpad-grid')?.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement;
     const pad = target.closest<HTMLButtonElement>('.pad-button');
@@ -387,4 +394,5 @@ function escapeHtml(value: unknown): string {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#039;');
 }
+
 

@@ -58,21 +58,21 @@ class ShaperRuntime:
     pan_offset: float = 0.0
     polyphony_mode: str = "steal"
 
-    def voice_on(self, n: int, velocity: float = 1.0, clock: float = 0.0, *, sustained: bool = True) -> ActiveVoiceState:
+    def voice_on(self, n: int, velocity: float = 1.0, clock: float = 0.0, *, sustained: bool = False) -> ActiveVoiceState:
         """Activate a voice. Returns the voice state.
 
-        By default voices start in the sustain phase (envelope_value=1.0) so pad
-        toggles in the UI produce immediate audible output. Set sustained=False for
-        a normal ADSR-style attack handled by advance_envelopes().
+        Normal pad_on starts in attack phase (envelope_value=0.0) and is advanced
+        by advance_envelopes(). Set sustained=True for toggle-style pad controls
+        that should produce immediate audible output.
         """
         if n in self.active_voices:
-            # Voice already active — re-attack / sustain.
+            # Voice already active — re-attack.
             voice = self.active_voices[n]
             voice.velocity = velocity
             voice.note_on = True
             voice.gate = True
-            voice.envelope_phase = "sustain"
-            voice.envelope_value = 1.0
+            voice.envelope_phase = "sustain" if sustained else "attack"
+            voice.envelope_value = 1.0 if sustained else 0.0
             voice.phase_accum = 0.0
             voice.started_at = clock
             voice.released_at = None
@@ -109,12 +109,16 @@ class ShaperRuntime:
                 del self.active_voices[n]
 
     def voice_toggle(self, n: int, velocity: float = 1.0, clock: float = 0.0) -> bool:
-        """Toggle voice n. Returns True if voice is now active."""
+        """Toggle voice n. Returns True if voice is now active.
+
+        Toggles use sustained mode so the UI/launchpad pad buttons produce
+        immediate audible output without waiting for an attack envelope.
+        """
         if n in self.active_voices and self.active_voices[n].gate:
             self.voice_off(n, clock)
             return False
         else:
-            self.voice_on(n, velocity, clock)
+            self.voice_on(n, velocity, clock, sustained=True)
             return True
 
     def panic(self) -> None:
@@ -267,6 +271,10 @@ class SceneState:
             elif isinstance(source, ShaperSource):
                 if sid not in self.shapers:
                     self.shapers[sid] = ShaperRuntime(source_id=sid)
+                # Activate scene voices that are marked active on load.
+                for n, voice in source.voices.items():
+                    if getattr(voice, "active", False) and n not in self.shapers[sid].active_voices:
+                        self.shapers[sid].voice_on(n, sustained=True)
             elif isinstance(source, SampleSource):
                 if sid not in self.samples:
                     self.samples[sid] = SampleRuntime(source_id=sid, loop=source.loop)
@@ -613,6 +621,7 @@ class SceneState:
             sensor_influence=d.get("sensor_influence", 1.0),
             sensor_sources=d.get("sensor_sources", {}),
         )
+
 
 
 

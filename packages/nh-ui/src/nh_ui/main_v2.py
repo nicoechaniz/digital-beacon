@@ -109,6 +109,9 @@ async def main():
     async def _apply_to_runtime(event):
         runtime.model.apply_control(event)
         await runtime._broadcast_field()
+        # Mirror the control back to any UI WebSocket clients so the browser
+        # reflects external/Launchpad-initiated changes immediately.
+        broadcast_control_event(event)
 
     set_legacy_control_handler(_legacy_control)
     set_scene_control_handler(state.apply_control)
@@ -245,6 +248,7 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
 
 
 
