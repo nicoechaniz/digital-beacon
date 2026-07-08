@@ -288,12 +288,16 @@ cd /home/nicolas/Projects/digital-beacon
 - Verify active voices clear.
 - Save screenshot to `/tmp/nh-ui-v2-smoke.png`.
 
-Preferred command once harness exists:
+Preferred reusable harness:
 
 ```bash
 cd /home/nicolas/Projects/digital-beacon
-.venv/bin/python -m pytest packages/nh-ui/tests/test_ui_v2_e2e.py -q
+scripts/verify_nh_ui_v2.py --full
 ```
+
+This builds the v2 web UI, runs the Playwright browser E2E suite, runs scene
+API tests, and then runs the full package suite. Hardware-dependent audio/MIDI
+tests remain opt-in via `NH_RUN_HARDWARE_E2E=1`.
 
 ## Definition of done for the UI round
 
