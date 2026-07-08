@@ -81,3 +81,34 @@ def test_normalization_scales_with_active_gain_sum():
     # gain sum 2 -> norm 0.5 for the single; gain sum 4 -> norm 0.25 for the pair.
     assert np.max(np.abs(out1)) <= 1.0 + 1e-6
     assert np.max(np.abs(out2)) <= 1.0 + 1e-6
+
+
+def test_render_scene_default_projection():
+    """render_scene projects scene to field and renders."""
+    from nh_core import HarmonicScene, BeaconSource, ShaperSource, ShaperVoice, SpatialBand
+
+    scene = HarmonicScene(
+        sources={
+            "beacon": BeaconSource(source_id="beacon", f1=100.0,
+                bands={1: SpatialBand(az=0.0, on=True)}),
+            "shaper": ShaperSource(source_id="shaper",
+                voices={3: ShaperVoice(n=3, gain=0.5, active=True)}),
+        },
+    )
+    r = PythonSounddeviceRenderer(sr=16000, block_size=64)
+    r.render_scene(scene)
+
+    # Should have rendered the projected field.
+    assert r._last_field is not None
+    assert r._last_field.f1 == 100.0
+    # Shaper voice 3 overrides beacon band 3's gain.
+    assert r._last_field.partials[3].gain == 0.5
+
+
+def test_renderer_capability_flags_default():
+    """Default renderer does not support scene features."""
+    r = PythonSounddeviceRenderer(sr=16000, block_size=64)
+    assert r.supports_scene() is False
+    assert r.supports_sources() is False
+    assert r.supports_envelopes() is False
+    assert r.supports_buffers() is False
