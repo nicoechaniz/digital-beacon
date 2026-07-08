@@ -26,7 +26,8 @@ def client(runtime):
 def test_root_serves_ui(client):
     r = client.get("/")
     assert r.status_code == 200
-    assert "NaturalHarmony UI" in r.text
+    assert "NaturalHarmony v2" in r.text
+    assert "app-shell" in r.text
 
 
 def test_list_presets(client):

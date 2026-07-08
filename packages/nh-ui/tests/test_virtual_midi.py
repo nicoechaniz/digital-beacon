@@ -7,6 +7,11 @@ Server must be started with NH_LAUNCHPAD_PORT=VirMIDI.
 import asyncio, json, os, signal, subprocess, sys, time
 import pytest, requests, websockets
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("NH_RUN_HARDWARE_E2E") != "1",
+    reason="hardware/virtual MIDI e2e; set NH_RUN_HARDWARE_E2E=1 to run",
+)
+
 SERVER_URL = "http://127.0.0.1:8080"
 RUNTIME_WS = "ws://127.0.0.1:8765/"
 

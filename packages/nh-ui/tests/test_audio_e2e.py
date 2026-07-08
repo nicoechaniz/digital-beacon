@@ -20,6 +20,11 @@ import requests
 import soundfile as sf
 import websockets
 
+pytestmark = pytest.mark.skipif(
+    os.getenv("NH_RUN_HARDWARE_E2E") != "1",
+    reason="hardware/ALSA loopback e2e; set NH_RUN_HARDWARE_E2E=1 to run",
+)
+
 SERVER_URL = "http://127.0.0.1:8080"
 SR = 48000
 CAPTURE_FILE = "/tmp/nh_pytest_capture.wav"
