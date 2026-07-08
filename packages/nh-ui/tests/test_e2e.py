@@ -203,6 +203,38 @@ def test_v2_launchpad_grid_click_toggles_voice(server_url: str) -> None:
         assert page.locator(".pad-button.active").count() == 0
 
 
+def test_v2_spatial_editor_updates_band_parameters(server_url: str) -> None:
+    for page in _page(server_url):
+        page.goto(server_url)
+        page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.wait_for_selector(".spatial-row[data-band='3'] input[data-path='sources.beacon.bands.3.az']", timeout=10_000)
+
+        result = page.evaluate(
+            """async () => {
+                const az = document.querySelector(".spatial-row[data-band='3'] input[data-path='sources.beacon.bands.3.az']");
+                const dist = document.querySelector(".spatial-row[data-band='3'] input[data-path='sources.beacon.bands.3.dist']");
+                const q = document.querySelector(".spatial-row[data-band='3'] input[data-path='sources.beacon.bands.3.q']");
+                const on = document.querySelector(".spatial-row[data-band='3'] input[data-path='sources.beacon.bands.3.on']");
+                az.value = '123';
+                az.dispatchEvent(new Event('input', {bubbles: true}));
+                dist.value = '0.42';
+                dist.dispatchEvent(new Event('input', {bubbles: true}));
+                q.value = '0.9';
+                q.dispatchEvent(new Event('input', {bubbles: true}));
+                on.checked = false;
+                on.dispatchEvent(new Event('input', {bubbles: true}));
+                await new Promise(resolve => setTimeout(resolve, 400));
+                const r = await fetch('/nh/v2/scene');
+                const data = await r.json();
+                return data.sources.beacon.bands['3'];
+            }"""
+        )
+        assert result["az"] == 123
+        assert result["dist"] == 0.42
+        assert result["q"] == 0.9
+        assert result["on"] is False
+
+
 def test_v2_shaper_pad_and_panic(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
@@ -239,5 +271,6 @@ def test_v2_shell_screenshot(server_url: str) -> None:
         page.screenshot(path=out, full_page=True)
         assert Path(out).exists()
         assert Path(out).stat().st_size > 10_000
+
 
 

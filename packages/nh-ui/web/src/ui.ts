@@ -132,6 +132,13 @@ export function bindShellHandlers(handlers: ShellHandlers): void {
     if (!path) return;
     handlers.onControl(path, Number(target.value));
   });
+  document.getElementById('spatial-panel')?.addEventListener('input', (ev) => {
+    const target = ev.target as HTMLInputElement;
+    const path = target.dataset.path;
+    if (!path) return;
+    const value = target.type === 'checkbox' ? target.checked : Number(target.value);
+    handlers.onControl(path, value);
+  });
 }
 
 export function renderScene(scene: SceneSnapshot): void {
@@ -235,12 +242,20 @@ function renderSpatial(scene: SceneSnapshot): void {
     const entries = Object.entries(bands).slice(0, 32);
     list.innerHTML = entries.length
       ? entries.map(([n, band]: [string, any]) => `
-        <div class="spatial-row">
-          <span>H${escapeHtml(n)}</span>
-          <span>az ${formatNumber(band.az ?? 0)}°</span>
-          <span>dist ${formatNumber(band.dist ?? 1)}</span>
-          <span>q ${formatNumber(band.q ?? 0.5)}</span>
-          <span>${band.on === false ? 'off' : 'on'}</span>
+        <div class="spatial-row" data-band="${escapeHtml(n)}">
+          <span class="band-label">H${escapeHtml(n)}</span>
+          <label>az
+            <input class="spatial-input" type="number" step="1" min="0" max="360" value="${band.az ?? 0}" data-path="sources.beacon.bands.${escapeHtml(n)}.az" />
+          </label>
+          <label>dist
+            <input class="spatial-input" type="number" step="0.01" min="0" max="4" value="${band.dist ?? 1}" data-path="sources.beacon.bands.${escapeHtml(n)}.dist" />
+          </label>
+          <label>q
+            <input class="spatial-input" type="number" step="0.01" min="0.01" max="8" value="${band.q ?? 0.5}" data-path="sources.beacon.bands.${escapeHtml(n)}.q" />
+          </label>
+          <label class="band-on">on
+            <input class="spatial-on" type="checkbox" ${band.on === false ? '' : 'checked'} data-path="sources.beacon.bands.${escapeHtml(n)}.on" />
+          </label>
         </div>
       `).join('')
       : '<span class="empty-note">No beacon bands in scene.</span>';

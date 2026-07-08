@@ -424,3 +424,28 @@ def test_shaper_voice_phase_continuity():
     v.phase_accum = 0.25
     sr.voice_on(3, clock=1.0)  # re-attack — phase resets
     assert sr.active_voices[3].phase_accum == 0.0  # fresh attack, fresh phase
+
+
+
+def test_beacon_band_path_controls():
+    """Path controls can edit BeaconSource spatial bands."""
+    from nh_core import HarmonicScene, BeaconSource, SpatialBand
+    from nh_model import SceneState
+
+    scene = HarmonicScene(sources={
+        "beacon": BeaconSource(source_id="beacon", f1=65.0, bands={
+            3: SpatialBand(az=0.0, dist=1.0, q=0.5, on=True),
+        }),
+    })
+    state = SceneState(scene=scene)
+
+    state.apply_control({"path": "sources.beacon.bands.3.az", "value": 123.0})
+    state.apply_control({"path": "sources.beacon.bands.3.dist", "value": 0.42})
+    state.apply_control({"path": "sources.beacon.bands.3.q", "value": 0.9})
+    state.apply_control({"path": "sources.beacon.bands.3.on", "value": False})
+
+    band = state.scene.sources["beacon"].bands[3]
+    assert band.az == 123.0
+    assert band.dist == 0.42
+    assert band.q == 0.9
+    assert band.on is False

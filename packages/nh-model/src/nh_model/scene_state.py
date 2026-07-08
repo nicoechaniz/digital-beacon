@@ -332,6 +332,8 @@ class SceneState:
                     br.gain_offset = float(val)
                 elif param == "spatial_rotation":
                     br.spatial_rotation = float(val)
+                elif param.startswith("bands."):
+                    self._apply_beacon_band_path(target, param, val)
 
             elif target in self.shapers:
                 sr = self.shapers[target]
@@ -377,6 +379,31 @@ class SceneState:
                 sr.voice_off(n)
             elif action == "toggle":
                 sr.voice_toggle(n)
+
+    def _apply_beacon_band_path(self, source_id: str, param: str, val: Any) -> None:
+        """Handle bands.<N>.az / dist / q / on for BeaconSource."""
+        source = self.scene.sources.get(source_id)
+        if not isinstance(source, BeaconSource):
+            return
+        parts = param.split(".")
+        if len(parts) != 3 or parts[0] != "bands":
+            return
+        try:
+            n = int(parts[1])
+        except ValueError:
+            return
+        band = source.bands.get(n)
+        if band is None:
+            return
+        field = parts[2]
+        if field == "az":
+            band.az = float(val)
+        elif field == "dist":
+            band.dist = float(val)
+        elif field == "q":
+            band.q = float(val)
+        elif field == "on":
+            band.on = bool(val)
 
     def _apply_pad_event(self, etype: str, value: Any) -> None:
         """Pad events only affect ShaperSource, never BeaconSource."""
