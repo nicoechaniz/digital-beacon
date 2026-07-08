@@ -26,6 +26,12 @@ from nh_core.scene import (
     LFOState,
     ModulationRoute,
 )
+from nh_core.processors import (
+    HarmonicCombParams,
+    BinauralSpatializerParams,
+    FilterParams,
+    DynamicsParams,
+)
 
 __all__ = [
     # Field (v1)

@@ -8,6 +8,14 @@ from nh_analysis.phideus import (
     compute_v4_log,
     load_h_series_norm_stats,
 )
+from nh_analysis.result import (
+    AnalysisResult,
+    F0Track,
+    SpectralMetrics,
+    PhideusDescriptors,
+    EmotionResult,
+    SpeakerResult,
+)
 
 __all__ = [
     "F0Estimator",
@@ -21,4 +29,10 @@ __all__ = [
     "compute_h_series",
     "compute_a4_16k",
     "load_h_series_norm_stats",
+    "AnalysisResult",
+    "F0Track",
+    "SpectralMetrics",
+    "PhideusDescriptors",
+    "EmotionResult",
+    "SpeakerResult",
 ]
