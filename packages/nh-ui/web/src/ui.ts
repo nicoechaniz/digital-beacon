@@ -111,19 +111,12 @@ export function appendLog(message: string): void {
 export function bindShellHandlers(handlers: ShellHandlers): void {
   document.getElementById('refresh-button')?.addEventListener('click', () => handlers.onRefresh());
   document.getElementById('panic-button')?.addEventListener('click', () => handlers.onTypedControl('panic', true));
-  document.getElementById('launchpad-grid')?.addEventListener('pointerdown', (ev) => {
+  document.getElementById('launchpad-grid')?.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement;
     const pad = target.closest<HTMLButtonElement>('.pad-button');
     if (!pad) return;
     const n = Number(pad.dataset.n);
-    handlers.onTypedControl('pad_on', { n, velocity: 1.0 });
-  });
-  document.getElementById('launchpad-grid')?.addEventListener('pointerup', (ev) => {
-    const target = ev.target as HTMLElement;
-    const pad = target.closest<HTMLButtonElement>('.pad-button');
-    if (!pad) return;
-    const n = Number(pad.dataset.n);
-    handlers.onTypedControl('pad_off', { n });
+    handlers.onControl(`sources.shaper.voice_${n}_toggle`, 1.0);
   });
   document.getElementById('sources-panel')?.addEventListener('click', (ev) => {
     const target = ev.target as HTMLElement;
@@ -228,6 +221,7 @@ function renderLaunchpadGrid(): void {
     btn.type = 'button';
     btn.className = 'pad-button';
     btn.dataset.n = String(n);
+    btn.title = `Toggle Shaper harmonic ${n}`;
     btn.textContent = String(n);
     grid.appendChild(btn);
   }

@@ -183,6 +183,26 @@ def test_v2_sources_mixer_controls_update_runtime(server_url: str) -> None:
         assert muted == 0
 
 
+def test_v2_launchpad_grid_click_toggles_voice(server_url: str) -> None:
+    for page in _page(server_url):
+        page.goto(server_url)
+        page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.locator(".pad-button[data-n='7']").click()
+        page.wait_for_function(
+            """() => document.querySelector('#active-voices')?.textContent?.includes('1 voices')""",
+            timeout=10_000,
+        )
+        assert page.locator(".pad-button[data-n='7'].active").count() == 1
+        assert "H7" in (page.text_content("#voice-list") or "")
+
+        page.locator("#panic-button").click()
+        page.wait_for_function(
+            """() => document.querySelector('#active-voices')?.textContent?.includes('0 voices')""",
+            timeout=10_000,
+        )
+        assert page.locator(".pad-button.active").count() == 0
+
+
 def test_v2_shaper_pad_and_panic(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
@@ -219,4 +239,5 @@ def test_v2_shell_screenshot(server_url: str) -> None:
         page.screenshot(path=out, full_page=True)
         assert Path(out).exists()
         assert Path(out).stat().st_size > 10_000
+
 
