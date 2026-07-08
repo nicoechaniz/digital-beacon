@@ -133,7 +133,7 @@ export function bindShellHandlers(handlers: ShellHandlers): void {
     if (target.matches('[data-action="unmute"]')) handlers.onMuteSource(sourceId, false);
     if (target.matches('[data-action="solo"]')) handlers.onSoloSource(sourceId);
   });
-  document.getElementById('sources-panel')?.addEventListener('change', (ev) => {
+  document.getElementById('sources-panel')?.addEventListener('input', (ev) => {
     const target = ev.target as HTMLInputElement;
     const path = target.dataset.path;
     if (!path) return;
@@ -163,19 +163,30 @@ function sourceCard(id: string, source: any): string {
   const kind = source.kind || source.type || id;
   const runtime = source.runtime || {};
   const f1 = source.f1 ?? source.model?.f1;
-  const gain = source.master_gain ?? source.gain ?? runtime.gain_offset ?? 1;
+  const modelGain = source.master_gain ?? source.gain ?? 1;
+  const runtimeGain = runtime.gain_offset ?? 1;
+  const effectiveGain = modelGain * runtimeGain;
+  const gainPath = `sources.${id}.gain`;
   const bands = source.bands ? Object.keys(source.bands).length : 0;
   const activeVoices = runtime.voice_count ?? Object.keys(runtime.active_voices || {}).length;
+  const effectiveF1 = runtime.effective_f1 ?? f1;
+  const muted = runtimeGain === 0;
   const stableId = `source-card-${id}`;
   return `
-    <article id="${escapeHtml(stableId)}" class="source-card kind-${escapeHtml(kind)}">
+    <article id="${escapeHtml(stableId)}" class="source-card kind-${escapeHtml(kind)} ${muted ? 'muted' : ''}">
       <div class="source-title"><b>${escapeHtml(id)}</b><span>${escapeHtml(kind)}</span></div>
       <dl>
         ${f1 !== undefined ? `<div><dt>f1</dt><dd>${formatNumber(f1)} Hz</dd></div>` : ''}
-        <div><dt>gain</dt><dd>${formatNumber(gain)}</dd></div>
+        ${effectiveF1 !== undefined && effectiveF1 !== f1 ? `<div><dt>effective f1</dt><dd>${formatNumber(effectiveF1)} Hz</dd></div>` : ''}
+        <div><dt>model gain</dt><dd>${formatNumber(modelGain)}</dd></div>
+        <div><dt>runtime gain</dt><dd>${formatNumber(runtimeGain)}</dd></div>
+        <div><dt>effective gain</dt><dd>${formatNumber(effectiveGain)}</dd></div>
         ${bands ? `<div><dt>bands</dt><dd>${bands}</dd></div>` : ''}
         ${activeVoices ? `<div><dt>voices</dt><dd>${activeVoices}</dd></div>` : ''}
       </dl>
+      <label class="inline-control">runtime gain
+        <input id="source-gain-${escapeHtml(id)}" type="range" min="0" max="1.5" step="0.01" value="${runtimeGain}" data-path="${escapeHtml(gainPath)}" />
+      </label>
       <div class="source-controls">
         <button type="button" data-action="mute" data-source-id="${escapeHtml(id)}">Mute</button>
         <button type="button" data-action="unmute" data-source-id="${escapeHtml(id)}">Unmute</button>

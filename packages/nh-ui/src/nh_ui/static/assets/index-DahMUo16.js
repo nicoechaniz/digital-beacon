@@ -60,15 +60,21 @@
         <div id="event-log-lines"></div>
       </section>
     </main>
-  `,c())}function t(e,t){let n=document.getElementById(`connection-status`);n&&(n.className=`status ${e}`,n.textContent=t)}function n(e){let t=document.getElementById(`event-log-lines`);if(!t)return;let n=document.createElement(`div`);for(n.className=`log-line`,n.textContent=`[${new Date().toLocaleTimeString()}] ${e}`,t.prepend(n);t.children.length>80;)t.removeChild(t.lastChild)}function r(e){document.getElementById(`refresh-button`)?.addEventListener(`click`,()=>e.onRefresh()),document.getElementById(`panic-button`)?.addEventListener(`click`,()=>e.onTypedControl(`panic`,!0)),document.getElementById(`launchpad-grid`)?.addEventListener(`pointerdown`,t=>{let n=t.target.closest(`.pad-button`);if(!n)return;let r=Number(n.dataset.n);e.onTypedControl(`pad_on`,{n:r,velocity:1})}),document.getElementById(`launchpad-grid`)?.addEventListener(`pointerup`,t=>{let n=t.target.closest(`.pad-button`);if(!n)return;let r=Number(n.dataset.n);e.onTypedControl(`pad_off`,{n:r})}),document.getElementById(`sources-panel`)?.addEventListener(`click`,t=>{let n=t.target,r=n.dataset.sourceId;r&&(n.matches(`[data-action="mute"]`)&&e.onMuteSource(r,!0),n.matches(`[data-action="unmute"]`)&&e.onMuteSource(r,!1),n.matches(`[data-action="solo"]`)&&e.onSoloSource(r))}),document.getElementById(`sources-panel`)?.addEventListener(`change`,t=>{let n=t.target,r=n.dataset.path;r&&e.onControl(r,Number(n.value))})}function i(e){a(e),s(e),l(e),u(e),d(e)}function a(e){let t=document.getElementById(`sources-list`),n=document.getElementById(`source-count`);if(!t)return;let r=e.sources||{},i=Object.entries(r);n&&(n.textContent=String(i.length)),t.innerHTML=i.map(([e,t])=>o(e,t)).join(``)}function o(e,t){let n=t.kind||t.type||e,r=t.runtime||{},i=t.f1??t.model?.f1,a=t.master_gain??t.gain??r.gain_offset??1,o=t.bands?Object.keys(t.bands).length:0,s=r.voice_count??Object.keys(r.active_voices||{}).length;return`
-    <article id="${m(`source-card-${e}`)}" class="source-card kind-${m(n)}">
+  `,c())}function t(e,t){let n=document.getElementById(`connection-status`);n&&(n.className=`status ${e}`,n.textContent=t)}function n(e){let t=document.getElementById(`event-log-lines`);if(!t)return;let n=document.createElement(`div`);for(n.className=`log-line`,n.textContent=`[${new Date().toLocaleTimeString()}] ${e}`,t.prepend(n);t.children.length>80;)t.removeChild(t.lastChild)}function r(e){document.getElementById(`refresh-button`)?.addEventListener(`click`,()=>e.onRefresh()),document.getElementById(`panic-button`)?.addEventListener(`click`,()=>e.onTypedControl(`panic`,!0)),document.getElementById(`launchpad-grid`)?.addEventListener(`pointerdown`,t=>{let n=t.target.closest(`.pad-button`);if(!n)return;let r=Number(n.dataset.n);e.onTypedControl(`pad_on`,{n:r,velocity:1})}),document.getElementById(`launchpad-grid`)?.addEventListener(`pointerup`,t=>{let n=t.target.closest(`.pad-button`);if(!n)return;let r=Number(n.dataset.n);e.onTypedControl(`pad_off`,{n:r})}),document.getElementById(`sources-panel`)?.addEventListener(`click`,t=>{let n=t.target,r=n.dataset.sourceId;r&&(n.matches(`[data-action="mute"]`)&&e.onMuteSource(r,!0),n.matches(`[data-action="unmute"]`)&&e.onMuteSource(r,!1),n.matches(`[data-action="solo"]`)&&e.onSoloSource(r))}),document.getElementById(`sources-panel`)?.addEventListener(`input`,t=>{let n=t.target,r=n.dataset.path;r&&e.onControl(r,Number(n.value))})}function i(e){a(e),s(e),l(e),u(e),d(e)}function a(e){let t=document.getElementById(`sources-list`),n=document.getElementById(`source-count`);if(!t)return;let r=e.sources||{},i=Object.entries(r);n&&(n.textContent=String(i.length)),t.innerHTML=i.map(([e,t])=>o(e,t)).join(``)}function o(e,t){let n=t.kind||t.type||e,r=t.runtime||{},i=t.f1??t.model?.f1,a=t.master_gain??t.gain??1,o=r.gain_offset??1,s=a*o,c=`sources.${e}.gain`,l=t.bands?Object.keys(t.bands).length:0,u=r.voice_count??Object.keys(r.active_voices||{}).length,d=r.effective_f1??i,f=o===0;return`
+    <article id="${m(`source-card-${e}`)}" class="source-card kind-${m(n)} ${f?`muted`:``}">
       <div class="source-title"><b>${m(e)}</b><span>${m(n)}</span></div>
       <dl>
         ${i===void 0?``:`<div><dt>f1</dt><dd>${p(i)} Hz</dd></div>`}
-        <div><dt>gain</dt><dd>${p(a)}</dd></div>
-        ${o?`<div><dt>bands</dt><dd>${o}</dd></div>`:``}
-        ${s?`<div><dt>voices</dt><dd>${s}</dd></div>`:``}
+        ${d!==void 0&&d!==i?`<div><dt>effective f1</dt><dd>${p(d)} Hz</dd></div>`:``}
+        <div><dt>model gain</dt><dd>${p(a)}</dd></div>
+        <div><dt>runtime gain</dt><dd>${p(o)}</dd></div>
+        <div><dt>effective gain</dt><dd>${p(s)}</dd></div>
+        ${l?`<div><dt>bands</dt><dd>${l}</dd></div>`:``}
+        ${u?`<div><dt>voices</dt><dd>${u}</dd></div>`:``}
       </dl>
+      <label class="inline-control">runtime gain
+        <input id="source-gain-${m(e)}" type="range" min="0" max="1.5" step="0.01" value="${o}" data-path="${m(c)}" />
+      </label>
       <div class="source-controls">
         <button type="button" data-action="mute" data-source-id="${m(e)}">Mute</button>
         <button type="button" data-action="unmute" data-source-id="${m(e)}">Unmute</button>

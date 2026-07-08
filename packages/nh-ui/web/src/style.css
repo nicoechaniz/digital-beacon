@@ -190,6 +190,11 @@ button.danger {
   padding: 0.85rem;
 }
 
+.source-card.muted {
+  opacity: 0.72;
+  border-color: rgba(255, 107, 122, 0.45);
+}
+
 .source-title {
   display: flex;
   align-items: center;

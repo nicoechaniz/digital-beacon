@@ -152,6 +152,37 @@ def test_v2_path_control_updates_scene(server_url: str) -> None:
         assert value == 7.5
 
 
+def test_v2_sources_mixer_controls_update_runtime(server_url: str) -> None:
+    for page in _page(server_url):
+        page.goto(server_url)
+        page.wait_for_selector("#connection-status.connected", timeout=10_000)
+        page.wait_for_selector("#source-gain-beacon", timeout=10_000)
+
+        gain = page.evaluate(
+            """async () => {
+                const slider = document.querySelector('#source-gain-beacon');
+                slider.value = '0.42';
+                slider.dispatchEvent(new Event('input', {bubbles: true}));
+                await new Promise(resolve => setTimeout(resolve, 250));
+                const r = await fetch('/nh/v2/scene');
+                const data = await r.json();
+                return data.sources.beacon.runtime.gain_offset;
+            }"""
+        )
+        assert gain == 0.42
+
+        muted = page.evaluate(
+            """async () => {
+                document.querySelector('#source-card-shaper [data-action=\"mute\"]').click();
+                await new Promise(resolve => setTimeout(resolve, 250));
+                const r = await fetch('/nh/v2/scene');
+                const data = await r.json();
+                return data.sources.shaper.runtime.gain_offset;
+            }"""
+        )
+        assert muted == 0
+
+
 def test_v2_shaper_pad_and_panic(server_url: str) -> None:
     for page in _page(server_url):
         page.goto(server_url)
@@ -188,3 +219,4 @@ def test_v2_shell_screenshot(server_url: str) -> None:
         page.screenshot(path=out, full_page=True)
         assert Path(out).exists()
         assert Path(out).stat().st_size > 10_000
+
