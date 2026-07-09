@@ -15,7 +15,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 from pythonosc.udp_client import SimpleUDPClient
 
@@ -37,7 +37,35 @@ DERIVED_DESCRIPTORS = {
     "rms_delta", "rms_smooth", "f0_stability", "centroid_delta", "inharmonicity",
 }
 BAND_DESCRIPTORS = {f"band_{i}" for i in range(32)}
+# Suggested stable ranges for descriptor normalization (per-sample values are
+# clamped and then mapped to 0..1). These make presets portable across samples.
+DESCRIPTOR_RANGES: Dict[str, Tuple[float, float]] = {
+    "rms": (0.0, 0.5),
+    "f0_hz": (20.0, 200.0),
+    "f0_ratio": (0.5, 4.0),
+    "centroid": (20.0, 8000.0),
+    "bandwidth": (20.0, 8000.0),
+    "flatness": (0.0, 1.0),
+    "rms_delta": (-0.2, 0.2),
+    "rms_smooth": (0.0, 0.5),
+    "f0_stability": (0.0, 1.0),
+    "centroid_delta": (-1000.0, 1000.0),
+    "inharmonicity": (0.0, 1.0),
+}
+# Add band_0..31 ranges dynamically
+for _i in range(32):
+    DESCRIPTOR_RANGES[f"band_{_i}"] = (0.0, 1.0)
+
+
 VALID_DESCRIPTORS = BASE_DESCRIPTORS | DERIVED_DESCRIPTORS | BAND_DESCRIPTORS
+
+
+def _normalize_descriptor(name: str, raw: float) -> float:
+    """Map a raw descriptor to a 0..1 range using declared (min, max)."""
+    lo, hi = DESCRIPTOR_RANGES.get(name, (0.0, 1.0))
+    if hi == lo:
+        return 0.0
+    return max(0.0, min(1.0, (raw - lo) / (hi - lo)))
 
 
 @dataclass
@@ -161,14 +189,11 @@ class SampleModulator:
                 continue
             raw = float(values[t.descriptor])
 
-            # Threshold: if below threshold, output clamps to min_value
-            if raw < t.threshold:
+            # Normalize descriptor to a stable 0..1 range before applying scale
+            normalized = _normalize_descriptor(t.descriptor, raw)
+            if normalized < t.threshold:
                 value = t.min_value
             else:
-                # Normalize to 0..1 within the expected descriptor range
-                # (if max==min, just use raw)
-                expected_max = 1.0  # descriptors are normalized-ish; raw is used directly
-                normalized = raw / expected_max if expected_max else 0.0
                 if t.invert:
                     normalized = 1.0 - normalized
                 value = t.offset + normalized * t.scale
@@ -231,14 +256,14 @@ class SampleModulator:
     def default_mapping(self) -> None:
         """Install a sensible default mapping for exploration."""
         self.set_targets([
-            # Sample energy -> beacon master gain (ducking-like)
-            ModulationTarget("rms", "beacon", "master", scale=2.0, offset=0.2, max_value=1.5),
-            # Sample f0 ratio -> beacon varispeed (slow down / speed up)
-            ModulationTarget("f0_ratio", "beacon", "vsrate", scale=0.2, offset=1.0, min_value=0.25, max_value=2.0),
+            # Sample energy -> beacon master gain (0.2 .. 1.5)
+            ModulationTarget("rms", "beacon", "master", scale=1.3, offset=0.2, max_value=1.5),
+            # Sample f0 ratio -> beacon varispeed (0.25 .. 2.0)
+            ModulationTarget("f0_ratio", "beacon", "vsrate", scale=1.75, offset=0.25, min_value=0.25, max_value=2.0),
             # Sample low-band energy -> shaper gain on voice 1
-            ModulationTarget("band_0", "shaper", "gain", voice=1, scale=0.05, offset=0.0, max_value=1.0),
-            # Sample overall energy -> shaper master gain
-            ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
+            ModulationTarget("band_0", "shaper", "gain", voice=1, scale=1.0, offset=0.0, max_value=1.0),
+            # Sample overall energy -> shaper master gain (0.2 .. 1.0)
+            ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0),
         ])
         log.info("SampleModulator default mapping installed")
 
@@ -246,35 +271,36 @@ class SampleModulator:
         """Install a named preset mapping."""
         presets = {
             "tune-to-sample": [
-                ModulationTarget("f0_hz", "beacon", "f1", scale=1.0, offset=0.0, min_value=20.0, max_value=200.0, smooth=0.9),
-                ModulationTarget("f0_hz", "shaper", "master", scale=0.0, offset=0.0),  # f0 retunes shaper via store.update_f1 indirectly
-                ModulationTarget("rms", "beacon", "master", scale=1.0, offset=0.2, max_value=1.5),
-                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
+                ModulationTarget("f0_hz", "beacon", "f1", scale=180.0, offset=20.0, min_value=20.0, max_value=200.0, smooth=0.9),
+                ModulationTarget("f0_stability", "beacon", "vsrate", scale=0.2, offset=0.9, min_value=0.9, max_value=1.1, smooth=0.95),
+                ModulationTarget("inharmonicity", "beacon", "q", band=1, scale=2.5, offset=0.5, max_value=3.0, invert=True, smooth=0.9),
+                ModulationTarget("rms", "beacon", "master", scale=1.3, offset=0.2, max_value=1.5, smooth=0.8),
+                ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0, smooth=0.8),
             ],
             "spectrum-projection": [
-                ModulationTarget("band_0", "beacon", "gain", band=1, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8),
-                ModulationTarget("band_1", "beacon", "gain", band=7, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8),
-                ModulationTarget("band_2", "beacon", "gain", band=14, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8),
-                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
+                ModulationTarget("band_0", "beacon", "gain", band=1, scale=1.5, offset=0.0, max_value=1.5, smooth=0.8),
+                ModulationTarget("band_1", "beacon", "gain", band=7, scale=1.5, offset=0.0, max_value=1.5, smooth=0.8),
+                ModulationTarget("band_2", "beacon", "gain", band=14, scale=1.5, offset=0.0, max_value=1.5, smooth=0.8),
+                ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0),
             ],
             "timbre-filter": [
-                ModulationTarget("centroid", "shaper", "shape", voice=1, scale=0.001, offset=0.0, max_value=1.0, smooth=0.9),
-                ModulationTarget("flatness", "beacon", "q", band=1, scale=2.0, offset=0.5, max_value=2.0, smooth=0.9),
-                ModulationTarget("rms", "beacon", "dist", band=1, scale=5.0, offset=0.0, max_value=10.0, smooth=0.8),
+                ModulationTarget("centroid", "shaper", "shape", voice=1, scale=1.0, offset=0.0, max_value=1.0, smooth=0.9),
+                ModulationTarget("flatness", "beacon", "q", band=1, scale=1.5, offset=0.5, max_value=2.0, smooth=0.9),
+                ModulationTarget("rms", "beacon", "dist", band=1, scale=10.0, offset=0.0, max_value=10.0, smooth=0.8),
             ],
             "rhythmic-pump": [
-                ModulationTarget("rms", "shaper", "lfo_amount", scale=2.0, offset=0.0, max_value=1.0, smooth=0.7),
-                ModulationTarget("rms", "beacon", "master", scale=1.5, offset=0.2, max_value=1.5, smooth=0.7),
-                ModulationTarget("rms_delta", "shaper", "gain", voice=7, scale=0.5, offset=0.0, max_value=1.0, threshold=0.01),
+                ModulationTarget("rms", "shaper", "lfo_amount", scale=1.0, offset=0.0, max_value=1.0, smooth=0.7),
+                ModulationTarget("rms", "beacon", "master", scale=1.3, offset=0.2, max_value=1.5, smooth=0.7),
+                ModulationTarget("rms_delta", "shaper", "gain", voice=7, scale=1.0, offset=0.0, max_value=1.0, threshold=0.2),
             ],
             "phase-manifold-tune": [
-                ModulationTarget("f0_hz", "beacon", "f1", scale=1.0, offset=0.0, min_value=20.0, max_value=200.0, smooth=0.9),
-                ModulationTarget("f0_stability", "beacon", "vsrate", scale=0.1, offset=1.0, min_value=0.9, max_value=1.1, smooth=0.95),
-                ModulationTarget("inharmonicity", "beacon", "q", band=1, scale=2.0, offset=0.5, max_value=3.0, invert=True, smooth=0.9),
-                ModulationTarget("rms", "beacon", "master", scale=1.0, offset=0.2, max_value=1.5, smooth=0.8),
-                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0, smooth=0.8),
+                ModulationTarget("f0_hz", "beacon", "f1", scale=180.0, offset=20.0, min_value=20.0, max_value=200.0, smooth=0.9),
+                ModulationTarget("f0_stability", "beacon", "vsrate", scale=0.2, offset=0.9, min_value=0.9, max_value=1.1, smooth=0.95),
+                ModulationTarget("inharmonicity", "beacon", "q", band=1, scale=2.5, offset=0.5, max_value=3.0, invert=True, smooth=0.9),
+                ModulationTarget("rms", "beacon", "master", scale=1.3, offset=0.2, max_value=1.5, smooth=0.8),
+                ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0, smooth=0.8),
             ] + [
-                ModulationTarget(f"band_{i}", "beacon", "gain", band=i+1, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8)
+                ModulationTarget(f"band_{i}", "beacon", "gain", band=i+1, scale=1.5, offset=0.0, max_value=1.5, smooth=0.8)
                 for i in range(32)
             ],
         }
