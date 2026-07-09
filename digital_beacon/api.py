@@ -39,6 +39,7 @@ from pythonosc.udp_client import SimpleUDPClient
 from .state import VoiceParameterStore
 from . import config
 from .recorder import Recorder
+from .sample_manager import SampleManager
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +56,7 @@ PRESETS_DIR = Path(__file__).parent.parent / "configs"
 PRESETS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def create_app(store: VoiceParameterStore, recorder=None) -> "FastAPI":
+def create_app(store: VoiceParameterStore, recorder=None, sample_manager: SampleManager = None) -> "FastAPI":
     if not HAS_FASTAPI:
         raise ImportError("fastapi and uvicorn are required. pip install fastapi uvicorn[standard]")
 
@@ -386,6 +387,57 @@ def create_app(store: VoiceParameterStore, recorder=None) -> "FastAPI":
                 if vp.get("lfo_phase") is not None:
                     store.set_lfo_phase(n, float(vp["lfo_phase"]))
         return {"ok": True, "name": name, "state": state}
+
+    # ——— REST: Sample layer (loopable samples as modulation sources) —————————
+    @app.get("/api/sample/state")
+    async def sample_state():
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        return {
+            "ok": True,
+            "running": sample_manager.is_running(),
+            "path": sample_manager.current_path,
+            "descriptor": sample_manager.last_descriptor(),
+            "targets": sample_manager.list_targets(),
+        }
+
+    @app.post("/api/sample/load")
+    async def sample_load(body: dict):
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        path = body.get("path")
+        if not path:
+            return {"ok": False, "error": "path required"}
+        try:
+            sample_manager.load(path)
+            return {"ok": True, "path": path}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @app.post("/api/sample/stop")
+    async def sample_stop():
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        sample_manager.stop()
+        return {"ok": True}
+
+    @app.post("/api/sample/mapping")
+    async def sample_mapping(body: dict):
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        targets = body.get("targets", [])
+        try:
+            sample_manager.set_mapping(targets)
+            return {"ok": True, "targets": sample_manager.list_targets()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @app.post("/api/sample/default")
+    async def sample_default():
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        sample_manager.default_mapping()
+        return {"ok": True, "targets": sample_manager.list_targets()}
 
     # ─── REST: Recording (pw-record on PipeWire monitor) ────────────────
     @app.get("/api/record/status")

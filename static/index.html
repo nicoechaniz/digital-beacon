@@ -493,6 +493,66 @@ applyScState();
 loadPresetList();
 api('/api/state').then(s=>{if(s)applyShaperState(s);}).catch(e=>console.error(e));
 pollRecStatus();
+
+async function loadSample(){
+  const path=document.getElementById('sample-path').value.trim();
+  if(!path){setSampleStatus('Enter path','#e67e22');return;}
+  setSampleStatus('Loading...','#3498db');
+  const r=await api('/api/sample/load','POST',{path});
+  if(r&&r.ok){setSampleStatus('Loaded: '+r.path,'#2ecc71'); startSamplePoll();}
+  else{setSampleStatus('Error: '+(r&&r.error),'#e74c3c');}
+}
+async function stopSample(){
+  const r=await api('/api/sample/stop','POST');
+  if(r&&r.ok){setSampleStatus('Stopped','#888'); stopSamplePoll();}
+}
+async function defaultSampleMapping(){
+  const r=await api('/api/sample/default','POST');
+  if(r&&r.ok){setSampleStatus('Default mapping ('+r.targets.length+' targets)','#2ecc71');}
+  else{setSampleStatus('Error: '+(r&&r.error),'#e74c3c');}
+}
+function setSampleStatus(msg,color){
+  const e=document.getElementById('sample-status');
+  if(e){e.textContent=msg;e.style.color=color||'#888';}
+}
+let samplePollTimer=null;
+async function pollSample(){
+  const r=await api('/api/sample/state');
+  if(!r||!r.ok)return;
+  const descEl=document.getElementById('sample-descriptor');
+  if(descEl && r.descriptor){
+    descEl.textContent=JSON.stringify(r.descriptor);
+  }
+  if(r.running){
+    setSampleStatus('Running: '+(r.path||''),'#2ecc71');
+  }
+}
+function startSamplePoll(){
+  if(samplePollTimer)return;
+  samplePollTimer=setInterval(pollSample,200);
+}
+function stopSamplePoll(){
+  if(samplePollTimer){clearInterval(samplePollTimer);samplePollTimer=null;}
+}
+
 </script>
+
+<!-- Sample layer panel -->
+<div class="mix-section" style="margin-top:8px;">
+    <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Sample Modulation</div>
+    <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:end;">
+        <div>
+            <label style="display:block;font-size:0.5rem;color:#888;text-transform:uppercase;margin-bottom:2px;">Sample path</label>
+            <input type="text" id="sample-path" placeholder="/path/to/sample.wav"
+                   style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;">
+        </div>
+        <button onclick="loadSample()" style="padding:4px 10px;border:1px solid #2ecc71;color:#2ecc71;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">LOAD</button>
+        <button onclick="stopSample()" style="padding:4px 10px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">STOP</button>
+    </div>
+    <button onclick="defaultSampleMapping()" style="margin-top:8px;width:100%;padding:4px;border:1px solid #3498db;color:#3498db;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">DEFAULT MAPPING</button>
+    <div id="sample-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;">No sample loaded</div>
+    <div id="sample-descriptor" style="margin-top:4px;padding:6px;font-family:ui-monospace,monospace;font-size:0.6rem;color:#64748b;word-break:break-all;"></div>
+</div>
+
 </body>
 </html>

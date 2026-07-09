@@ -26,6 +26,7 @@ from .osc_receiver import ShaperOSCReceiver
 from .midi_control import LaunchpadMiniControl
 from .recorder import Recorder
 from . import config
+from .sample_manager import SampleManager
 
 logging.basicConfig(
     level=getattr(logging, config.LOG_LEVEL),
@@ -57,6 +58,7 @@ def main() -> None:
     parser.add_argument("--no-api", action="store_true", help="Disable web dashboard (default: on)")
     parser.add_argument("--api-host", type=str, default="127.0.0.1", help="Dashboard bind host")
     parser.add_argument("--api-port", type=int, default=8080, help="Dashboard port")
+    parser.add_argument("--sample", type=str, default=None, help="Path to loopable sample for ratio modulation")
     args = parser.parse_args()
 
     if args.list_midi:
@@ -77,6 +79,13 @@ def main() -> None:
         return
 
     osc = ShaperOSCReceiver(store)
+
+    sample_manager = SampleManager(store, sc_host=config.SCLANG_HOST, sc_port=config.SCLANG_OSC_PORT)
+    if args.sample:
+        try:
+            sample_manager.load(args.sample)
+        except Exception as e:
+            log.warning("Could not load sample %s: %s", args.sample, e)
 
     launchpad = LaunchpadMiniControl(store)
     store._panic_callback = launchpad.panic
@@ -109,7 +118,7 @@ def main() -> None:
         # and an OSC client to tell sclang to start/stop its own Server.record.
         sc_osc_for_rec = SimpleUDPClient(config.SCLANG_HOST, config.SCLANG_OSC_PORT)
         recorder = Recorder(store, audio, sc_osc_for_rec)
-        app = create_app(store, recorder=recorder)
+        app = create_app(store, recorder=recorder, sample_manager=sample_manager)
         config_uvicorn = uvicorn.Config(app, host=args.api_host, port=args.api_port,
                                         log_level="warning", access_log=False)
         server_uvicorn = uvicorn.Server(config_uvicorn)
@@ -140,8 +149,10 @@ def main() -> None:
         if not args.no_osc:
             osc.stop()
         audio.stop()
+        sample_manager.stop()
         log.info("Shaper stopped.")
 
 
 if __name__ == "__main__":
     main()
+
