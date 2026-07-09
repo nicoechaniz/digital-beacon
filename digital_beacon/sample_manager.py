@@ -33,8 +33,8 @@ class SampleManager:
         self._presets_dir.mkdir(parents=True, exist_ok=True)
 
     def load(self, path: str, sr: int = 48000, chunk_s: float = 0.05,
-             f0_beacon_hz: float = 40.4, default_mapping: bool = True) -> None:
-        """Load a sample, start analysis loop, and optionally install default mapping."""
+             f0_beacon_hz: float = 40.4, default_mapping: bool = False) -> None:
+        """Load a sample and start analysis loop. Modulation is off by default."""
         self.stop()
         resolved = Path(path).expanduser()
         if not resolved.exists():
@@ -51,7 +51,20 @@ class SampleManager:
             self.modulator.default_mapping()
         self.layer.start()
         self.current_path = str(resolved)
-        log.info("SampleManager loaded: %s", self.current_path)
+        log.info("SampleManager loaded: %s (modulation=%s)", self.current_path, default_mapping)
+
+    def _ensure_modulator(self) -> None:
+        """Create a modulator if missing. Called before applying a preset/mapping."""
+        if self.modulator is None:
+            self.modulator = SampleModulator(self.store, self.sc_host, self.sc_port)
+            if self.layer is not None:
+                self.layer.on_descriptor = self.modulator.on_descriptor
+
+    def _set_empty_mapping(self) -> None:
+        """Ensure the modulator exists and has no targets."""
+        self._ensure_modulator()
+        assert self.modulator is not None
+        self.modulator.set_targets([])
 
     def stop(self) -> None:
         if self.layer is not None:
@@ -70,16 +83,14 @@ class SampleManager:
 
     def set_mapping(self, targets: List[Dict]) -> None:
         """Replace the current modulation mapping with a list of target dicts."""
-        if self.modulator is None:
-            raise RuntimeError("no sample loaded")
+        self._ensure_modulator()
         targets = [t for t in targets if t.get("descriptor") in VALID_DESCRIPTORS]
         self.modulator.mapping_from_dict(targets)
         log.info("SampleManager mapping updated: %d targets", len(targets))
 
     def apply_preset(self, name: str) -> None:
         """Apply a named mapping preset (built-in or user-saved)."""
-        if self.modulator is None:
-            raise RuntimeError("no sample loaded")
+        self._ensure_modulator()
         # Try user-saved first
         preset_path = self._presets_dir / f"{name}.json"
         if preset_path.exists():
@@ -93,24 +104,24 @@ class SampleManager:
 
     def save_preset(self, name: str) -> None:
         """Save current mapping as a user preset."""
-        if self.modulator is None:
-            raise RuntimeError("no sample loaded")
+        self._ensure_modulator()
         preset_path = self._presets_dir / f"{name}.json"
         preset_path.write_text(json.dumps(self.modulator.mapping_to_dict(), indent=2))
         log.info("SampleManager saved preset: %s", name)
 
     def list_presets(self) -> List[str]:
         """List built-in + user mapping presets."""
-        built_ins = ["default", "tune-to-sample", "spectrum-projection", "timbre-filter", "rhythmic-pump"]
+        built_ins = [
+            "default", "tune-to-sample", "spectrum-projection", "timbre-filter",
+            "rhythmic-pump", "phase-manifold-tune", "consonance-gate", "harmonic-projection",
+        ]
         user_presets = [p.stem for p in self._presets_dir.glob("*.json")]
         return sorted(set(built_ins + user_presets))
 
     def list_targets(self) -> List[Dict]:
-        if self.modulator is None:
-            return []
+        self._ensure_modulator()
         return self.modulator.mapping_to_dict()
 
     def default_mapping(self) -> None:
-        if self.modulator is None:
-            raise RuntimeError("no sample loaded")
+        self._ensure_modulator()
         self.modulator.default_mapping()

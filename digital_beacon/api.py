@@ -439,6 +439,12 @@ def create_app(store: VoiceParameterStore, recorder=None, sample_manager: Sample
         sample_manager.default_mapping()
         return {"ok": True, "targets": sample_manager.list_targets()}
 
+    @app.get("/api/sample/presets")
+    async def sample_presets():
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        return {"ok": True, "presets": sample_manager.list_presets()}
+
     @app.get("/api/sample/list")
     async def sample_list():
         import os
