@@ -27,7 +27,7 @@ from pathlib import Path
 from typing import Optional, Set
 
 try:
-    from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+    from fastapi import FastAPI, File, UploadFile, WebSocket, WebSocketDisconnect, HTTPException
     from fastapi.responses import HTMLResponse
     import uvicorn
     HAS_FASTAPI = True
@@ -438,6 +438,34 @@ def create_app(store: VoiceParameterStore, recorder=None, sample_manager: Sample
             return {"ok": False, "error": "sample manager not enabled"}
         sample_manager.default_mapping()
         return {"ok": True, "targets": sample_manager.list_targets()}
+
+    @app.get("/api/sample/list")
+    async def sample_list():
+        import os
+        from pathlib import Path
+        dirs = [
+            Path.home() / "Music" / "field-recordings" / "wav",
+            Path.home() / "Music" / "voice-analysis",
+            Path.home() / "Music",
+        ]
+        files = []
+        for d in dirs:
+            if d.exists():
+                for wav in sorted(d.glob("*.wav")):
+                    files.append(str(wav))
+        return {"ok": True, "samples": files}
+
+    @app.post("/api/sample/upload")
+    async def sample_upload(file: UploadFile = File(...)):
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        from pathlib import Path
+        upload_dir = Path.home() / "Music" / "digital-beacon-uploads"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        dest = upload_dir / file.filename
+        with open(dest, "wb") as f:
+            f.write(await file.read())
+        return {"ok": True, "path": str(dest)}
 
     # ─── REST: Recording (pw-record on PipeWire monitor) ────────────────
     @app.get("/api/record/status")

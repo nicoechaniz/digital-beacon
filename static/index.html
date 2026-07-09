@@ -478,6 +478,16 @@ async function loadPresetList(){
   sel.innerHTML='<option value="">--</option>';
   for(const name of r.presets) sel.innerHTML+='<option value="'+name+'">'+name+'</option>';
 }
+async function loadSampleList(){
+  const r=await api('/api/sample/list');
+  if(!r||!r.ok)return;
+  const sel=document.getElementById('sample-select');
+  sel.innerHTML='<option value="">-- choose a sample --</option>';
+  for(const path of r.samples){
+    const name=path.split('/').pop();
+    sel.innerHTML+='<option value="'+path+'">'+name+'</option>';
+  }
+}
 
 // WebSocket
 function connect(){
@@ -491,15 +501,34 @@ function connect(){
 connect();
 applyScState();
 loadPresetList();
+loadSampleList();
 api('/api/state').then(s=>{if(s)applyShaperState(s);}).catch(e=>console.error(e));
 pollRecStatus();
 
 async function loadSample(){
-  const path=document.getElementById('sample-path').value.trim();
-  if(!path){setSampleStatus('Enter path','#e67e22');return;}
+  const sel=document.getElementById('sample-select');
+  const path=sel.value;
+  if(!path){setSampleStatus('Select a sample','#e67e22');return;}
+  await _doLoad(path);
+}
+async function uploadAndLoadSample(){
+  const input=document.getElementById('sample-file');
+  if(!input.files||input.files.length===0){setSampleStatus('Choose a file','#e67e22');return;}
+  const file=input.files[0];
+  setSampleStatus('Uploading...','#3498db');
+  const form=new FormData();
+  form.append('file',file);
+  try{
+    const r=await fetch('/api/sample/upload',{method:'POST',body:form});
+    const j=await r.json();
+    if(j&&j.ok){await _doLoad(j.path);}
+    else{setSampleStatus('Upload error: '+(j&&j.error),'#e74c3c');}
+  }catch(e){setSampleStatus('Upload failed: '+e,'#e74c3c');}
+}
+async function _doLoad(path){
   setSampleStatus('Loading...','#3498db');
   const r=await api('/api/sample/load','POST',{path});
-  if(r&&r.ok){setSampleStatus('Loaded: '+r.path,'#2ecc71'); startSamplePoll();}
+  if(r&&r.ok){setSampleStatus('Loaded: '+r.path.split('/').pop(),'#2ecc71'); startSamplePoll();}
   else{setSampleStatus('Error: '+(r&&r.error),'#e74c3c');}
 }
 async function stopSample(){
@@ -540,14 +569,20 @@ function stopSamplePoll(){
 <!-- Sample layer panel -->
 <div class="mix-section" style="margin-top:8px;">
     <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Sample Modulation</div>
-    <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:end;">
+    <div style="display:grid;grid-template-columns:1fr auto auto;gap:8px;align-items:end;margin-bottom:8px;">
         <div>
-            <label style="display:block;font-size:0.5rem;color:#888;text-transform:uppercase;margin-bottom:2px;">Sample path</label>
-            <input type="text" id="sample-path" placeholder="/path/to/sample.wav"
-                   style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;">
+            <label style="display:block;font-size:0.5rem;color:#888;text-transform:uppercase;margin-bottom:2px;">Existing sample</label>
+            <select id="sample-select" style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;">
+                <option value="">-- choose a sample --</option>
+            </select>
         </div>
         <button onclick="loadSample()" style="padding:4px 10px;border:1px solid #2ecc71;color:#2ecc71;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">LOAD</button>
         <button onclick="stopSample()" style="padding:4px 10px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">STOP</button>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr auto;gap:8px;align-items:end;">
+        <input type="file" id="sample-file" accept="audio/wav,.wav"
+               style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;cursor:pointer;">
+        <button onclick="uploadAndLoadSample()" style="padding:4px 10px;border:1px solid #f39c12;color:#f39c12;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">UPLOAD</button>
     </div>
     <button onclick="defaultSampleMapping()" style="margin-top:8px;width:100%;padding:4px;border:1px solid #3498db;color:#3498db;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">DEFAULT MAPPING</button>
     <div id="sample-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;">No sample loaded</div>
