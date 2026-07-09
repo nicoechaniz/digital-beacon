@@ -52,6 +52,7 @@ class SampleDescriptor:
     bandwidth: float = 0.0
     flatness: float = 0.0
     band_energy: Optional[Dict[int, float]] = None  # energy per octave band
+    harm_energy: Optional[Dict[int, float]] = None  # energy per harmonic n*f1
     # Derived descriptors
     rms_delta: float = 0.0
     rms_smooth: float = 0.0
@@ -67,6 +68,8 @@ class SampleDescriptor:
     def __post_init__(self):
         if self.band_energy is None:
             self.band_energy = {}
+        if self.harm_energy is None:
+            self.harm_energy = {}
 
     def to_dict(self) -> Dict[str, float]:
         d = {
@@ -88,6 +91,7 @@ class SampleDescriptor:
             "timestamp": float(self.timestamp),
         }
         d.update({f"band_{k}": float(v) for k, v in self.band_energy.items()})
+        d.update({f"harm_{k}": float(v) for k, v in self.harm_energy.items()})
         return d
 
 
@@ -178,6 +182,24 @@ class SampleLayer:
             energies[i] = float(np.mean(D[mask])) if np.any(mask) else 0.0
         return energies
 
+    def _harmonic_projection(self, chunk: np.ndarray, f1: float) -> Dict[int, float]:
+        """Compute energy at each harmonic n*f1 (n=1..32) for the chunk."""
+        if f1 <= 0:
+            return {}
+        S = np.abs(librosa.stft(chunk, n_fft=2048, hop_length=512))
+        freqs = librosa.fft_frequencies(sr=self.sr, n_fft=2048)
+        energies = {}
+        for n in range(1, 33):
+            target = n * f1
+            if target >= self.sr / 2:
+                break
+            idx = int(np.argmin(np.abs(freqs - target)))
+            # Average a small window around the target bin
+            lo = max(0, idx - 1)
+            hi = min(len(freqs), idx + 2)
+            energies[n - 1] = float(np.mean(S[lo:hi, :])) if S.shape[1] > 0 else 0.0
+        return energies
+
     def _inharmonicity(self, chunk: np.ndarray, f0: float) -> float:
         """Rough inharmonicity: energy NOT on integer multiples of f0."""
         if f0 <= 0:
@@ -242,6 +264,9 @@ class SampleLayer:
             desc.residual_ratio = r_energy / total_energy
             desc.harmonic_rms = float(np.sqrt(h_energy / len(h_chunk)))
             desc.residual_rms = float(np.sqrt(r_energy / len(r_chunk)))
+
+        # Harmonic projection onto the beacon's f1 lattice
+        desc.harm_energy = self._harmonic_projection(chunk, self.f0_beacon_hz)
 
         # Derived descriptors from history
         if self._history:

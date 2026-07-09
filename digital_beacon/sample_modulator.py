@@ -38,6 +38,7 @@ DERIVED_DESCRIPTORS = {
     "harmonicity", "residual_ratio", "harmonic_rms", "residual_rms",
 }
 BAND_DESCRIPTORS = {f"band_{i}" for i in range(32)}
+HARMONIC_DESCRIPTORS = {f"harm_{i}" for i in range(32)}
 # Suggested stable ranges for descriptor normalization (per-sample values are
 # clamped and then mapped to 0..1). These make presets portable across samples.
 DESCRIPTOR_RANGES: Dict[str, Tuple[float, float]] = {
@@ -60,9 +61,10 @@ DESCRIPTOR_RANGES: Dict[str, Tuple[float, float]] = {
 # Add band_0..31 ranges dynamically
 for _i in range(32):
     DESCRIPTOR_RANGES[f"band_{_i}"] = (0.0, 1.0)
+    DESCRIPTOR_RANGES[f"harm_{_i}"] = (0.0, 1.0)
 
 
-VALID_DESCRIPTORS = BASE_DESCRIPTORS | DERIVED_DESCRIPTORS | BAND_DESCRIPTORS
+VALID_DESCRIPTORS = BASE_DESCRIPTORS | DERIVED_DESCRIPTORS | BAND_DESCRIPTORS | HARMONIC_DESCRIPTORS
 
 
 def _normalize_descriptor(name: str, raw: float) -> float:
@@ -316,6 +318,18 @@ class SampleModulator:
                 # More residual ratio -> shaper shape richer (noisier)
                 ModulationTarget("residual_ratio", "shaper", "shape", voice=1, scale=1.0, offset=0.0, max_value=1.0, smooth=0.9),
                 # Overall energy drives shaper master
+                ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0, smooth=0.8),
+            ],
+            "harmonic-projection": [
+                # Project sample's harmonic energy onto the beacon's f1 lattice
+            ] + [
+                ModulationTarget(f"harm_{i}", "beacon", "gain", band=i+1, scale=1.5, offset=0.0, max_value=1.5, smooth=0.8)
+                for i in range(32)
+            ] + [
+                ModulationTarget(f"harm_{i}", "shaper", "gain", voice=i+1, scale=1.0, offset=0.0, max_value=1.0, smooth=0.8)
+                for i in range(32)
+            ] + [
+                ModulationTarget("rms", "beacon", "master", scale=1.3, offset=0.2, max_value=1.5, smooth=0.8),
                 ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0, smooth=0.8),
             ],
         }
