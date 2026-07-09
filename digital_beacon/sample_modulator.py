@@ -32,12 +32,12 @@ SHAPER_PARAMS = {"master", "sidechain", "lfo_amount", "gain", "pan", "shape", "l
 # Valid descriptor names (from SampleLayer + derived ones)
 BASE_DESCRIPTORS = {
     "rms", "f0_hz", "f0_ratio", "centroid", "bandwidth", "flatness",
-    "band_0", "band_1", "band_2",
 }
 DERIVED_DESCRIPTORS = {
-    "rms_delta", "f0_stability", "centroid_delta", "inharmonicity",
+    "rms_delta", "rms_smooth", "f0_stability", "centroid_delta", "inharmonicity",
 }
-VALID_DESCRIPTORS = BASE_DESCRIPTORS | DERIVED_DESCRIPTORS
+BAND_DESCRIPTORS = {f"band_{i}" for i in range(32)}
+VALID_DESCRIPTORS = BASE_DESCRIPTORS | DERIVED_DESCRIPTORS | BAND_DESCRIPTORS
 
 
 @dataclass
@@ -266,6 +266,16 @@ class SampleModulator:
                 ModulationTarget("rms", "shaper", "lfo_amount", scale=2.0, offset=0.0, max_value=1.0, smooth=0.7),
                 ModulationTarget("rms", "beacon", "master", scale=1.5, offset=0.2, max_value=1.5, smooth=0.7),
                 ModulationTarget("rms_delta", "shaper", "gain", voice=7, scale=0.5, offset=0.0, max_value=1.0, threshold=0.01),
+            ],
+            "phase-manifold-tune": [
+                ModulationTarget("f0_hz", "beacon", "f1", scale=1.0, offset=0.0, min_value=20.0, max_value=200.0, smooth=0.9),
+                ModulationTarget("f0_stability", "beacon", "vsrate", scale=0.1, offset=1.0, min_value=0.9, max_value=1.1, smooth=0.95),
+                ModulationTarget("inharmonicity", "beacon", "q", band=1, scale=2.0, offset=0.5, max_value=3.0, invert=True, smooth=0.9),
+                ModulationTarget("rms", "beacon", "master", scale=1.0, offset=0.2, max_value=1.5, smooth=0.8),
+                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0, smooth=0.8),
+            ] + [
+                ModulationTarget(f"band_{i}", "beacon", "gain", band=i+1, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8)
+                for i in range(32)
             ],
         }
         if name not in presets:
