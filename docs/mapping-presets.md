@@ -81,6 +81,16 @@ widens the beacon filter; energy pushes the beacon spatial distance.
 **Effect:** The envelope of the sample drives an LFO pump and rhythmic accents
 on a shaper voice.
 
+### `consonance-gate`
+- `harmonicity` → `beacon.master` (scale 1.0, offset 0.2, max 1.2, smooth 0.9)
+- `residual_rms` → `beacon.band_1.q` (scale 2.0, offset 0.5, max 3.0, smooth 0.9)
+- `residual_ratio` → `shaper.voice_1.shape` (scale 1.0, max 1.0, smooth 0.9)
+- `rms` → `shaper.master` (scale 0.8, offset 0.2, max 1.0, smooth 0.8)
+
+**Effect:** Harmonic content opens the beacon; residual/noisy content widens the
+base filter and enriches the shaper timbre. Inspired by the ResonantNeuralNet
+consonance/dissonance detector.
+
 ## User presets
 
 Custom mappings can be saved from the dashboard UI under "Mapping Editor". They
