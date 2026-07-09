@@ -24,6 +24,7 @@ cd "$SCRIPT_DIR"
 USE_FILE=0
 RUN_SHAPER=1
 RUN_BRIDGE=1
+NO_API=0
 EXTRA_PY_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -32,6 +33,7 @@ while [[ $# -gt 0 ]]; do
     --live)        USE_FILE=0; shift ;;
     --no-shaper)   RUN_SHAPER=0; shift ;;
     --no-bridge)   RUN_BRIDGE=0; shift ;;
+    --no-api)      NO_API=1; shift ;;
     -h|--help)
       grep '^#' "$0" | sed 's/^# \{0,1\}//'
       exit 0
@@ -194,7 +196,9 @@ SHAPER_PID=
 if [[ $RUN_SHAPER -eq 1 ]]; then
   echo ""
   echo ">>> [4/4] Starting digital_beacon Shaper (MIDI + OSC + audio) ..."
-  ./venv/bin/python3 -m digital_beacon.main "${EXTRA_PY_ARGS[@]}" \
+  ./venv/bin/python3 -m digital_beacon.main \
+    $([[ $NO_API -eq 1 ]] && echo --no-api) \
+    "${EXTRA_PY_ARGS[@]}" \
     > /tmp/digital-beacon-shaper.log 2>&1 &
   SHAPER_PID=$!
   echo "  shaper PID: $SHAPER_PID  (log: /tmp/digital-beacon-shaper.log)"
@@ -255,3 +259,4 @@ wait -n $SCSYNTH_PID $SCLANG_PID ${BRIDGE_PID:-0} ${SHAPER_PID:-0} 2>/dev/null |
 EXITED=$?
 echo "A child process exited (wait rc=$EXITED). Cleaning up..."
 cleanup
+
