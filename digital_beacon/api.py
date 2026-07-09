@@ -455,6 +455,15 @@ def create_app(store: VoiceParameterStore, recorder=None, sample_manager: Sample
                     files.append(str(wav))
         return {"ok": True, "samples": files}
 
+    @app.get("/api/sample/descriptors")
+    async def sample_descriptors():
+        from .sample_modulator import VALID_DESCRIPTORS, DESCRIPTOR_RANGES
+        return {
+            "ok": True,
+            "descriptors": sorted(VALID_DESCRIPTORS),
+            "ranges": {k: list(v) for k, v in DESCRIPTOR_RANGES.items()},
+        }
+
     @app.get("/api/sample/presets")
     async def sample_presets():
         if sample_manager is None:

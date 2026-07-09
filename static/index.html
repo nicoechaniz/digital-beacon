@@ -566,9 +566,16 @@ function stopSamplePoll(){
 
 
 // --- Mapping editor ---
-const DESCRIPTORS = ['rms','f0_hz','f0_ratio','centroid','bandwidth','flatness','rms_delta','rms_smooth','f0_stability','centroid_delta','inharmonicity'];
-const DESCRIPTOR_BANDS = Array.from({length:32},(_,i)=>`band_${i}`);
-const ALL_DESCRIPTORS = [...DESCRIPTORS, ...DESCRIPTOR_BANDS];
+let ALL_DESCRIPTORS = [];
+async function loadDescriptorList(){
+  const r=await api('/api/sample/descriptors');
+  if(r&&r.ok){
+    ALL_DESCRIPTORS = r.descriptors;
+  } else {
+    ALL_DESCRIPTORS = ['rms','f0_hz','f0_ratio','centroid','bandwidth','flatness','rms_delta','rms_smooth','f0_stability','centroid_delta','inharmonicity'];
+    for(let i=0;i<32;i++) ALL_DESCRIPTORS.push('band_'+i);
+  }
+}
 const TARGET_TYPES = ['beacon','shaper'];
 const BEACON_PARAMS = ['master','f1','vsrate','gain','az','dist','q','on'];
 const SHAPER_PARAMS = ['master','sidechain','lfo_amount','gain','pan','shape','lfo_gain','lfo_pan','lfo_phase'];
@@ -673,7 +680,8 @@ async function saveMappingPreset(){
   const name=document.getElementById('mapping-save-name').value.trim();
   if(!name){setMappingStatus('Enter name','#e67e22');return;}
   const r=await api('/api/sample/save-preset','POST',{name});
-  if(r&&r.ok){setMappingStatus('Saved: '+name,'#2ecc71'); await loadMappingPresetList();}
+  if(r&&r.ok){setMappingStatus('Saved: '+name,'#2ecc71'); await loadDescriptorList();
+loadMappingPresetList();}
   else{setMappingStatus('Error: '+(r&&r.error),'#e74c3c');}
 }
 
