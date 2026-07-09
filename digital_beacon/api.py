@@ -432,6 +432,16 @@ def create_app(store: VoiceParameterStore, recorder=None, sample_manager: Sample
         except Exception as e:
             return {"ok": False, "error": str(e)}
 
+    @app.post("/api/sample/clear")
+    async def sample_clear():
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        try:
+            sample_manager.clear_mapping()
+            return {"ok": True, "targets": sample_manager.list_targets()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     @app.post("/api/sample/default")
     async def sample_default():
         if sample_manager is None:

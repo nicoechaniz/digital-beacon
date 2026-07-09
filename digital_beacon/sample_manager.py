@@ -89,8 +89,11 @@ class SampleManager:
         log.info("SampleManager mapping updated: %d targets", len(targets))
 
     def apply_preset(self, name: str) -> None:
-        """Apply a named mapping preset (built-in or user-saved)."""
+        """Apply a named mapping preset (built-in or user-saved), replacing any existing mapping."""
         self._ensure_modulator()
+        # Always clear current mapping first so presets never accumulate
+        assert self.modulator is not None
+        self.modulator.set_targets([])
         # Try user-saved first
         preset_path = self._presets_dir / f"{name}.json"
         if preset_path.exists():
@@ -102,6 +105,12 @@ class SampleManager:
         self.modulator.preset_mapping(name)
         log.info("SampleManager loaded built-in preset: %s", name)
 
+    def clear_mapping(self) -> None:
+        """Remove all active modulation targets."""
+        self._ensure_modulator()
+        assert self.modulator is not None
+        self.modulator.set_targets([])
+        log.info("SampleManager mapping cleared")
     def save_preset(self, name: str) -> None:
         """Save current mapping as a user preset."""
         self._ensure_modulator()

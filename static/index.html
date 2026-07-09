@@ -677,6 +677,17 @@ async function loadMappingPreset(){
   }else{status.textContent='Error: '+(r&&r.error);status.style.color='#e74c3c';}
 }
 
+async function clearMapping(){
+  const r=await api('/api/sample/clear','POST',{});
+  if(r&&r.ok){
+    mappingRows=[];
+    renderMappingRows();
+    setMappingStatus('Cleared','#e74c3c');
+  }else{
+    setMappingStatus('Error: '+(r&&r.error),'#e74c3c');
+  }
+}
+
 async function saveMappingPreset(){
   const name=document.getElementById('mapping-save-name').value.trim();
   if(!name){setMappingStatus('Enter name','#e67e22');return;}
@@ -759,9 +770,10 @@ loadDescriptorList().then(loadMappingPresetList);
         <button onclick="saveMappingPreset()" style="padding:4px 10px;border:1px solid #2ecc71;color:#2ecc71;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">SAVE</button>
     </div>
     <div id="mapping-rows" style="margin-bottom:8px;"></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;">
         <button onclick="addMappingRow()" style="padding:4px;border:1px solid #f39c12;color:#f39c12;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">+ ADD MAPPING</button>
-        <button onclick="applyMapping()" style="padding:4px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">APPLY</button>
+        <button onclick="clearMapping()" style="padding:4px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">CLEAR</button>
+        <button onclick="applyMapping()" style="padding:4px;border:1px solid #2ecc71;color:#2ecc71;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">APPLY</button>
     </div>
     <div id="mapping-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;"></div>
 </div>
