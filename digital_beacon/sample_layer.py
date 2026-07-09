@@ -31,6 +31,8 @@ except ImportError:
     HAS_LIBROSA = False
     librosa = None
 
+from .resonant_filter import ResonantFilter
+
 try:
     import sounddevice as sd
     HAS_SOUNDDEVICE = True
@@ -56,6 +58,10 @@ class SampleDescriptor:
     f0_stability: float = 0.0
     centroid_delta: float = 0.0
     inharmonicity: float = 0.0
+    harmonicity: float = 0.0
+    residual_ratio: float = 0.0
+    harmonic_rms: float = 0.0
+    residual_rms: float = 0.0
     timestamp: float = 0.0
 
     def __post_init__(self):
@@ -75,6 +81,10 @@ class SampleDescriptor:
             "f0_stability": float(self.f0_stability),
             "centroid_delta": float(self.centroid_delta),
             "inharmonicity": float(self.inharmonicity),
+            "harmonicity": float(self.harmonicity),
+            "residual_ratio": float(self.residual_ratio),
+            "harmonic_rms": float(self.harmonic_rms),
+            "residual_rms": float(self.residual_rms),
             "timestamp": float(self.timestamp),
         }
         d.update({f"band_{k}": float(v) for k, v in self.band_energy.items()})
@@ -110,6 +120,8 @@ class SampleLayer:
         self.history_size = history_size
 
         self._y: np.ndarray = np.zeros(0, dtype=np.float32)
+        self._y_harmonic: np.ndarray = np.zeros(0, dtype=np.float32)
+        self._y_residual: np.ndarray = np.zeros(0, dtype=np.float32)
         self._position: int = 0
         self._running: bool = False
         self._thread: Optional[threading.Thread] = None
@@ -117,6 +129,7 @@ class SampleLayer:
         self._last_descriptor: Optional[SampleDescriptor] = None
         self._history: Deque[SampleDescriptor] = deque(maxlen=history_size)
         self._band_edges: Optional[np.ndarray] = None
+        self._resonant_filter = ResonantFilter(sr=sr)
 
         self._load()
         self._build_band_edges()
@@ -128,6 +141,21 @@ class SampleLayer:
         self._y = y.astype(np.float32)
         log.info("SampleLayer loaded %s: sr=%d length=%.2fs frames=%d",
                  self.path.name, sr_loaded, len(self._y) / sr_loaded, len(self._y))
+
+        # Separate harmonic / residual once at load time.
+        # Initial bandwidth is based on global flatness of the whole sample.
+        try:
+            flat = float(librosa.feature.spectral_flatness(y=self._y)[0, 0])
+        except Exception:
+            flat = 0.0
+        try:
+            sep = self._resonant_filter.separate(self._y, self.f0_beacon_hz, flatness=flat, inharmonicity=0.0, stability=1.0)
+            self._y_harmonic = sep["harmonic_audio"].astype(np.float32)
+            self._y_residual = sep["residual_audio"].astype(np.float32)
+        except Exception as e:
+            log.warning("ResonantFilter separation failed: %s", e)
+            self._y_harmonic = self._y.copy()
+            self._y_residual = np.zeros_like(self._y)
 
     def _build_band_edges(self) -> None:
         # Octave-scaled bands from 20 Hz to Nyquist
@@ -169,7 +197,7 @@ class SampleLayer:
         harmonic_power = np.sum(power[harmonic_mask])
         return float(1.0 - harmonic_power / total)
 
-    def _analyze(self, chunk: np.ndarray) -> SampleDescriptor:
+    def _analyze(self, chunk: np.ndarray, h_chunk: np.ndarray = np.zeros(0), r_chunk: np.ndarray = np.zeros(0)) -> SampleDescriptor:
         desc = SampleDescriptor(timestamp=time.time())
         if len(chunk) == 0:
             return desc
@@ -205,6 +233,16 @@ class SampleLayer:
         # Inharmonicity
         desc.inharmonicity = self._inharmonicity(chunk, f0)
 
+        # Harmonic / residual descriptors from pre-separated components
+        if len(h_chunk) > 0 and len(r_chunk) > 0:
+            h_energy = float(np.sum(h_chunk ** 2))
+            r_energy = float(np.sum(r_chunk ** 2))
+            total_energy = h_energy + r_energy + 1e-12
+            desc.harmonicity = h_energy / total_energy
+            desc.residual_ratio = r_energy / total_energy
+            desc.harmonic_rms = float(np.sqrt(h_energy / len(h_chunk)))
+            desc.residual_rms = float(np.sqrt(r_energy / len(r_chunk)))
+
         # Derived descriptors from history
         if self._history:
             prev = self._history[-1]
@@ -239,27 +277,34 @@ class SampleLayer:
     # ------------------------------------------------------------------
     # Loop playback (optional) + analysis loop
     # ------------------------------------------------------------------
-    def _next_chunk(self) -> np.ndarray:
+    def _next_chunk(self) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         with self._lock:
             if len(self._y) == 0:
-                return np.zeros(self.chunk_size, dtype=np.float32)
+                z = np.zeros(self.chunk_size, dtype=np.float32)
+                return z, z, z
             end = self._position + self.chunk_size
             if end <= len(self._y):
                 chunk = self._y[self._position:end]
+                h_chunk = self._y_harmonic[self._position:end]
+                r_chunk = self._y_residual[self._position:end]
                 self._position = end
             else:
                 # wrap around
                 tail = self._y[self._position:]
+                h_tail = self._y_harmonic[self._position:]
+                r_tail = self._y_residual[self._position:]
                 need = self.chunk_size - len(tail)
                 chunk = np.concatenate([tail, self._y[:need]])
+                h_chunk = np.concatenate([h_tail, self._y_harmonic[:need]])
+                r_chunk = np.concatenate([r_tail, self._y_residual[:need]])
                 self._position = need
-            return chunk
+            return chunk, h_chunk, r_chunk
 
     def _loop(self) -> None:
         next_time = time.time() + self.chunk_s
         while self._running:
-            chunk = self._next_chunk()
-            desc = self._analyze(chunk)
+            chunk, h_chunk, r_chunk = self._next_chunk()
+            desc = self._analyze(chunk, h_chunk, r_chunk)
             self._last_descriptor = desc
             if self.on_descriptor is not None:
                 try:

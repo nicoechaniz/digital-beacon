@@ -35,6 +35,7 @@ BASE_DESCRIPTORS = {
 }
 DERIVED_DESCRIPTORS = {
     "rms_delta", "rms_smooth", "f0_stability", "centroid_delta", "inharmonicity",
+    "harmonicity", "residual_ratio", "harmonic_rms", "residual_rms",
 }
 BAND_DESCRIPTORS = {f"band_{i}" for i in range(32)}
 # Suggested stable ranges for descriptor normalization (per-sample values are
@@ -51,6 +52,10 @@ DESCRIPTOR_RANGES: Dict[str, Tuple[float, float]] = {
     "f0_stability": (0.0, 1.0),
     "centroid_delta": (-1000.0, 1000.0),
     "inharmonicity": (0.0, 1.0),
+    "harmonicity": (0.0, 1.0),
+    "residual_ratio": (0.0, 1.0),
+    "harmonic_rms": (0.0, 0.5),
+    "residual_rms": (0.0, 0.5),
 }
 # Add band_0..31 ranges dynamically
 for _i in range(32):
