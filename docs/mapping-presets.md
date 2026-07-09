@@ -91,6 +91,15 @@ on a shaper voice.
 base filter and enriches the shaper timbre. Inspired by the ResonantNeuralNet
 consonance/dissonance detector.
 
+### `harmonic-projection`
+- `harm_i` → `beacon.band_(i+1).gain` for i = 0..31
+- `harm_i` → `shaper.voice_(i+1).gain` for i = 0..31
+- `rms` → `beacon.master` and `shaper.master`
+
+**Effect:** The sample's energy at each harmonic of the beacon's `f1` is
+projected onto the corresponding beacon band and shaper voice. This is the
+RNN "phase-manifold" mapping in audible form.
+
 ## User presets
 
 Custom mappings can be saved from the dashboard UI under "Mapping Editor". They
