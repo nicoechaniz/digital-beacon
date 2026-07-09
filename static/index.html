@@ -564,6 +564,132 @@ function stopSamplePoll(){
   if(samplePollTimer){clearInterval(samplePollTimer);samplePollTimer=null;}
 }
 
+
+// --- Mapping editor ---
+const DESCRIPTORS = ['rms','f0_hz','f0_ratio','centroid','bandwidth','flatness','rms_delta','rms_smooth','f0_stability','centroid_delta','inharmonicity'];
+const DESCRIPTOR_BANDS = Array.from({length:32},(_,i)=>`band_${i}`);
+const ALL_DESCRIPTORS = [...DESCRIPTORS, ...DESCRIPTOR_BANDS];
+const TARGET_TYPES = ['beacon','shaper'];
+const BEACON_PARAMS = ['master','f1','vsrate','gain','az','dist','q','on'];
+const SHAPER_PARAMS = ['master','sidechain','lfo_amount','gain','pan','shape','lfo_gain','lfo_pan','lfo_phase'];
+let mappingRows = [];
+
+function renderMappingRows(){
+  const container=document.getElementById('mapping-rows');
+  container.innerHTML='';
+  for(let i=0;i<mappingRows.length;i++){
+    const row=mappingRows[i];
+    const div=document.createElement('div');
+    div.style.cssText='display:grid;grid-template-columns:1.2fr 0.8fr 1fr 0.5fr 0.5fr 0.5fr 0.5fr 0.5fr 0.5fr 0.4fr 0.4fr auto;gap:4px;align-items:center;margin-bottom:4px;';
+    div.innerHTML=`<select data-idx="${i}" data-field="descriptor" class="map-sel">${ALL_DESCRIPTORS.map(d=>`<option value="${d}" ${d===row.descriptor?'selected':''}>${d}</option>`).join('')}</select>
+<select data-idx="${i}" data-field="target_type" class="map-sel">${TARGET_TYPES.map(t=>`<option value="${t}" ${t===row.target_type?'selected':''}>${t}</option>`).join('')}</select>
+<select data-idx="${i}" data-field="param" class="map-sel">${buildParamOptions(row.target_type, row.param)}</select>
+<input data-idx="${i}" data-field="voice" type="number" min="1" max="32" value="${row.voice||''}" placeholder="v" title="voice" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="band" type="number" min="1" max="32" value="${row.band||''}" placeholder="b" title="band" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="scale" type="number" step="0.01" value="${row.scale}" title="scale" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="offset" type="number" step="0.01" value="${row.offset}" title="offset" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="min_value" type="number" step="0.01" value="${row.min_value}" title="min" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="max_value" type="number" step="0.01" value="${row.max_value}" title="max" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="smooth" type="number" step="0.01" min="0" max="1" value="${row.smooth}" title="smooth" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="threshold" type="number" step="0.001" value="${row.threshold}" title="threshold" style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:2px 4px;border-radius:3px;font-size:0.6rem;">
+<input data-idx="${i}" data-field="invert" type="checkbox" ${row.invert?'checked':''} title="invert" style="width:14px;height:14px;">
+<button onclick="removeMappingRow(${i})" style="padding:2px 6px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.5rem;">X</button>`;
+    container.appendChild(div);
+  }
+  // Bind change events
+  container.querySelectorAll('input,select').forEach(el=>{
+    el.addEventListener('change', updateMappingRowFromDom);
+  });
+}
+
+function buildParamOptions(target_type, selected){
+  const opts = target_type==='beacon' ? BEACON_PARAMS : SHAPER_PARAMS;
+  return opts.map(p=>`<option value="${p}" ${p===selected?'selected':''}>${p}</option>`).join('');
+}
+
+function updateMappingRowFromDom(e){
+  const el=e.target;
+  const idx=parseInt(el.dataset.idx);
+  const field=el.dataset.field;
+  let value = el.type==='checkbox' ? el.checked : el.value;
+  if(field!=='descriptor'&&field!=='target_type'&&field!=='param'&&field!=='invert') value=parseFloat(value);
+  if((field==='voice'||field==='band') && !value) value=null;
+  mappingRows[idx][field]=value;
+  if(field==='target_type'){
+    mappingRows[idx].param=(value==='beacon'?BEACON_PARAMS[0]:SHAPER_PARAMS[0]);
+    renderMappingRows();
+  }
+}
+
+function addMappingRow(){
+  mappingRows.push({
+    descriptor:'rms',target_type:'beacon',param:'master',voice:null,band:null,
+    scale:1,offset:0,min_value:0,max_value:1,smooth:0,threshold:0,invert:false,active:true
+  });
+  renderMappingRows();
+}
+
+function removeMappingRow(idx){
+  mappingRows.splice(idx,1);
+  renderMappingRows();
+}
+
+async function applyMapping(){
+  const targets = mappingRows.map(r=>({
+    descriptor:r.descriptor,
+    target_type:r.target_type,
+    param:r.param,
+    voice: r.voice ? parseInt(r.voice) : null,
+    band: r.band ? parseInt(r.band) : null,
+    scale: parseFloat(r.scale),
+    offset: parseFloat(r.offset),
+    min_value: parseFloat(r.min_value),
+    max_value: parseFloat(r.max_value),
+    smooth: parseFloat(r.smooth),
+    threshold: parseFloat(r.threshold),
+    invert: !!r.invert,
+    active: true
+  }));
+  const r=await api('/api/sample/mapping','POST',{targets});
+  const status=document.getElementById('mapping-status');
+  if(r&&r.ok){status.textContent='Mapping applied: '+r.targets.length+' targets';status.style.color='#2ecc71';}
+  else{status.textContent='Error: '+(r&&r.error);status.style.color='#e74c3c';}
+}
+
+async function loadMappingPreset(){
+  const sel=document.getElementById('mapping-preset-select');
+  const name=sel.value;
+  if(!name)return;
+  const r=await api('/api/sample/preset','POST',{name});
+  const status=document.getElementById('mapping-status');
+  if(r&&r.ok){
+    mappingRows=r.targets;
+    renderMappingRows();
+    status.textContent='Loaded preset: '+name;status.style.color='#2ecc71';
+  }else{status.textContent='Error: '+(r&&r.error);status.style.color='#e74c3c';}
+}
+
+async function saveMappingPreset(){
+  const name=document.getElementById('mapping-save-name').value.trim();
+  if(!name){setMappingStatus('Enter name','#e67e22');return;}
+  const r=await api('/api/sample/save-preset','POST',{name});
+  if(r&&r.ok){setMappingStatus('Saved: '+name,'#2ecc71'); await loadMappingPresetList();}
+  else{setMappingStatus('Error: '+(r&&r.error),'#e74c3c');}
+}
+
+async function loadMappingPresetList(){
+  const r=await api('/api/sample/presets');
+  if(!r||!r.ok)return;
+  const sel=document.getElementById('mapping-preset-select');
+  sel.innerHTML='<option value="">-- preset --</option>';
+  for(const name of r.presets) sel.innerHTML+='<option value="'+name+'">'+name+'</option>';
+}
+
+function setMappingStatus(msg,color){
+  const e=document.getElementById('mapping-status');
+  if(e){e.textContent=msg;e.style.color=color||'#888';}
+}
+
 </script>
 
 <!-- Sample layer panel -->
@@ -584,9 +710,28 @@ function stopSamplePoll(){
                style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;cursor:pointer;">
         <button onclick="uploadAndLoadSample()" style="padding:4px 10px;border:1px solid #f39c12;color:#f39c12;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">UPLOAD</button>
     </div>
-    <button onclick="defaultSampleMapping()" style="margin-top:8px;width:100%;padding:4px;border:1px solid #3498db;color:#3498db;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">DEFAULT MAPPING</button>
     <div id="sample-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;">No sample loaded</div>
     <div id="sample-descriptor" style="margin-top:4px;padding:6px;font-family:ui-monospace,monospace;font-size:0.6rem;color:#64748b;word-break:break-all;"></div>
+</div>
+
+<!-- Mapping editor panel -->
+<div class="mix-section" style="margin-top:8px;">
+    <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Mapping Editor</div>
+    <div style="display:grid;grid-template-columns:1fr auto auto auto;gap:8px;align-items:end;margin-bottom:8px;">
+        <select id="mapping-preset-select" style="width:100%;background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;">
+            <option value="">-- preset --</option>
+        </select>
+        <button onclick="loadMappingPreset()" style="padding:4px 10px;border:1px solid #3498db;color:#3498db;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">LOAD</button>
+        <input type="text" id="mapping-save-name" placeholder="name"
+               style="background:#0d0d14;border:1px solid #2a2a3e;color:#e0e0e0;padding:4px 6px;border-radius:3px;font-size:0.7rem;">
+        <button onclick="saveMappingPreset()" style="padding:4px 10px;border:1px solid #2ecc71;color:#2ecc71;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">SAVE</button>
+    </div>
+    <div id="mapping-rows" style="margin-bottom:8px;"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <button onclick="addMappingRow()" style="padding:4px;border:1px solid #f39c12;color:#f39c12;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">+ ADD MAPPING</button>
+        <button onclick="applyMapping()" style="padding:4px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">APPLY</button>
+    </div>
+    <div id="mapping-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;"></div>
 </div>
 
 </body>
