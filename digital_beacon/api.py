@@ -399,7 +399,16 @@ def create_app(store: VoiceParameterStore, recorder=None, sample_manager: Sample
             "path": sample_manager.current_path,
             "descriptor": sample_manager.last_descriptor(),
             "targets": sample_manager.list_targets(),
+            "player": sample_manager.player_state(),
         }
+
+    @app.post("/api/sample/player-gain")
+    async def sample_player_gain(body: dict):
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        gain = float(body.get("gain", 0.0))
+        sample_manager.set_player_gain(gain)
+        return {"ok": True, "gain": sample_manager.get_player_gain()}
 
     @app.post("/api/sample/load")
     async def sample_load(body: dict):

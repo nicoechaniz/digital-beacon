@@ -711,6 +711,12 @@ function setMappingStatus(msg,color){
 }
 
 
+async function setSampleGain(val){
+  const gain=parseFloat(val);
+  document.getElementById('sample-gain-val').textContent=Math.round(gain*100)+'%';
+  await api('/api/sample/player-gain','POST',{gain});
+}
+
 function updatePhaseManifold(descriptor){
   const container=document.getElementById('phase-manifold');
   if(!container||!descriptor)return;
@@ -754,6 +760,13 @@ loadDescriptorList().then(loadMappingPresetList);
         <button onclick="uploadAndLoadSample()" style="padding:4px 10px;border:1px solid #f39c12;color:#f39c12;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">UPLOAD</button>
     </div>
     <div id="sample-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;">No sample loaded</div>
+    <div style="margin-top:8px;display:flex;align-items:center;gap:8px;">
+        <label style="font-size:0.6rem;color:#888;white-space:nowrap;">Sample mix gain</label>
+        <input id="sample-gain" type="range" min="0" max="1" step="0.01" value="0"
+               oninput="setSampleGain(this.value)"
+               style="flex:1;accent-color:#3498db;">
+        <span id="sample-gain-val" style="font-size:0.6rem;color:#aaa;width:32px;text-align:right;">0%</span>
+    </div>
     <div id="sample-descriptor" style="margin-top:4px;padding:6px;font-family:ui-monospace,monospace;font-size:0.6rem;color:#64748b;word-break:break-all;"></div>
 </div>
 
