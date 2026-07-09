@@ -4,16 +4,18 @@ Routes ratios to:
 - Beacon parameters via OSC to sclang (57120).
 - Shaper parameters via VoiceParameterStore.
 
-Mappings are explicit: each descriptor can drive one or more targets with a scale
-and offset. This keeps the experiment visible and tunable.
+Mappings are declarative: each descriptor can drive one or more targets with
+scale, offset, smoothing, threshold and inversion. This keeps the experiment
+visible and tunable.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 from pythonosc.udp_client import SimpleUDPClient
 
@@ -21,6 +23,21 @@ from digital_beacon.sample_layer import SampleDescriptor
 from digital_beacon.state import VoiceParameterStore
 
 log = logging.getLogger(__name__)
+
+
+# Valid target parameters per system
+BEACON_PARAMS = {"master", "f1", "vsrate", "gain", "az", "dist", "q", "on"}
+SHAPER_PARAMS = {"master", "sidechain", "lfo_amount", "gain", "pan", "shape", "lfo_gain", "lfo_pan", "lfo_phase"}
+
+# Valid descriptor names (from SampleLayer + derived ones)
+BASE_DESCRIPTORS = {
+    "rms", "f0_hz", "f0_ratio", "centroid", "bandwidth", "flatness",
+    "band_0", "band_1", "band_2",
+}
+DERIVED_DESCRIPTORS = {
+    "rms_delta", "f0_stability", "centroid_delta", "inharmonicity",
+}
+VALID_DESCRIPTORS = BASE_DESCRIPTORS | DERIVED_DESCRIPTORS
 
 
 @dataclass
@@ -36,7 +53,62 @@ class ModulationTarget:
     offset: float = 0.0
     min_value: float = 0.0
     max_value: float = 1.0
+    smooth: float = 0.0   # 0..1, higher = more smoothing (EWMA alpha)
+    threshold: float = 0.0  # value below which output is clamped to min_value
+    invert: bool = False    # invert normalized value before scaling
     active: bool = True
+
+    # Runtime state (not serialized)
+    _smoothed_value: float = field(default=0.0, repr=False)
+
+    def validate(self) -> None:
+        if self.descriptor not in VALID_DESCRIPTORS:
+            raise ValueError(f"unknown descriptor: {self.descriptor}")
+        if self.target_type not in ("beacon", "shaper"):
+            raise ValueError(f"target_type must be 'beacon' or 'shaper', got {self.target_type}")
+        if self.target_type == "beacon" and self.param not in BEACON_PARAMS:
+            raise ValueError(f"unknown beacon param: {self.param}")
+        if self.target_type == "shaper" and self.param not in SHAPER_PARAMS:
+            raise ValueError(f"unknown shaper param: {self.param}")
+        if self.param in ("gain", "az", "dist", "q", "on") and self.band is None:
+            raise ValueError(f"beacon param {self.param} requires band")
+        if self.param in ("gain", "pan", "shape", "lfo_gain", "lfo_pan", "lfo_phase") and self.voice is None:
+            raise ValueError(f"shaper param {self.param} requires voice")
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "descriptor": self.descriptor,
+            "target_type": self.target_type,
+            "param": self.param,
+            "voice": self.voice,
+            "band": self.band,
+            "scale": self.scale,
+            "offset": self.offset,
+            "min_value": self.min_value,
+            "max_value": self.max_value,
+            "smooth": self.smooth,
+            "threshold": self.threshold,
+            "invert": self.invert,
+            "active": self.active,
+        }
+
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ModulationTarget":
+        return cls(
+            descriptor=d["descriptor"],
+            target_type=d["target_type"],
+            param=d["param"],
+            voice=d.get("voice"),
+            band=d.get("band"),
+            scale=float(d.get("scale", 1.0)),
+            offset=float(d.get("offset", 0.0)),
+            min_value=float(d.get("min_value", 0.0)),
+            max_value=float(d.get("max_value", 1.0)),
+            smooth=float(d.get("smooth", 0.0)),
+            threshold=float(d.get("threshold", 0.0)),
+            invert=bool(d.get("invert", False)),
+            active=bool(d.get("active", True)),
+        )
 
 
 class SampleModulator:
@@ -61,8 +133,15 @@ class SampleModulator:
         self._lock = threading.Lock()
 
     def add_target(self, target: ModulationTarget) -> None:
+        target.validate()
         with self._lock:
             self.targets.append(target)
+
+    def set_targets(self, targets: List[ModulationTarget]) -> None:
+        for t in targets:
+            t.validate()
+        with self._lock:
+            self.targets = targets
 
     def remove_targets(self, descriptor: Optional[str] = None) -> None:
         with self._lock:
@@ -81,8 +160,27 @@ class SampleModulator:
             if not t.active or t.descriptor not in values:
                 continue
             raw = float(values[t.descriptor])
-            value = t.offset + raw * t.scale
+
+            # Threshold: if below threshold, output clamps to min_value
+            if raw < t.threshold:
+                value = t.min_value
+            else:
+                # Normalize to 0..1 within the expected descriptor range
+                # (if max==min, just use raw)
+                expected_max = 1.0  # descriptors are normalized-ish; raw is used directly
+                normalized = raw / expected_max if expected_max else 0.0
+                if t.invert:
+                    normalized = 1.0 - normalized
+                value = t.offset + normalized * t.scale
+
             value = max(t.min_value, min(t.max_value, value))
+
+            # Smoothing: EWMA
+            if t.smooth > 0:
+                alpha = max(0.0, min(1.0, t.smooth))
+                t._smoothed_value = alpha * value + (1.0 - alpha) * t._smoothed_value
+                value = t._smoothed_value
+
             self._apply(t, value)
 
     def _apply(self, t: ModulationTarget, value: float) -> None:
@@ -123,17 +221,54 @@ class SampleModulator:
         with self._lock:
             return list(self.targets)
 
-    def default_mapping(self, sample_path: Optional[str] = None) -> None:
+    def mapping_to_dict(self) -> List[Dict[str, Any]]:
+        return [t.to_dict() for t in self.list_targets()]
+
+    def mapping_from_dict(self, data: List[Dict[str, Any]]) -> None:
+        targets = [ModulationTarget.from_dict(d) for d in data]
+        self.set_targets(targets)
+
+    def default_mapping(self) -> None:
         """Install a sensible default mapping for exploration."""
-        with self._lock:
-            self.targets = [
-                # Sample energy -> beacon master gain (ducking-like)
-                ModulationTarget("rms", "beacon", "master", scale=2.0, offset=0.2, max_value=1.5),
-                # Sample f0 ratio -> beacon varispeed (slow down / speed up)
-                ModulationTarget("f0_ratio", "beacon", "vsrate", scale=0.2, offset=1.0, min_value=0.25, max_value=2.0),
-                # Sample low-band energy -> shaper gain on voice 1
-                ModulationTarget("band_0", "shaper", "gain", voice=1, scale=0.05, offset=0.0, max_value=1.0),
-                # Sample overall energy -> shaper master gain
-                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
-            ]
+        self.set_targets([
+            # Sample energy -> beacon master gain (ducking-like)
+            ModulationTarget("rms", "beacon", "master", scale=2.0, offset=0.2, max_value=1.5),
+            # Sample f0 ratio -> beacon varispeed (slow down / speed up)
+            ModulationTarget("f0_ratio", "beacon", "vsrate", scale=0.2, offset=1.0, min_value=0.25, max_value=2.0),
+            # Sample low-band energy -> shaper gain on voice 1
+            ModulationTarget("band_0", "shaper", "gain", voice=1, scale=0.05, offset=0.0, max_value=1.0),
+            # Sample overall energy -> shaper master gain
+            ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
+        ])
         log.info("SampleModulator default mapping installed")
+
+    def preset_mapping(self, name: str) -> None:
+        """Install a named preset mapping."""
+        presets = {
+            "tune-to-sample": [
+                ModulationTarget("f0_hz", "beacon", "f1", scale=1.0, offset=0.0, min_value=20.0, max_value=200.0, smooth=0.9),
+                ModulationTarget("f0_hz", "shaper", "master", scale=0.0, offset=0.0),  # f0 retunes shaper via store.update_f1 indirectly
+                ModulationTarget("rms", "beacon", "master", scale=1.0, offset=0.2, max_value=1.5),
+                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
+            ],
+            "spectrum-projection": [
+                ModulationTarget("band_0", "beacon", "gain", band=1, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8),
+                ModulationTarget("band_1", "beacon", "gain", band=7, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8),
+                ModulationTarget("band_2", "beacon", "gain", band=14, scale=1.0, offset=0.0, max_value=1.5, smooth=0.8),
+                ModulationTarget("rms", "shaper", "master", scale=1.0, offset=0.2, max_value=1.0),
+            ],
+            "timbre-filter": [
+                ModulationTarget("centroid", "shaper", "shape", voice=1, scale=0.001, offset=0.0, max_value=1.0, smooth=0.9),
+                ModulationTarget("flatness", "beacon", "q", band=1, scale=2.0, offset=0.5, max_value=2.0, smooth=0.9),
+                ModulationTarget("rms", "beacon", "dist", band=1, scale=5.0, offset=0.0, max_value=10.0, smooth=0.8),
+            ],
+            "rhythmic-pump": [
+                ModulationTarget("rms", "shaper", "lfo_amount", scale=2.0, offset=0.0, max_value=1.0, smooth=0.7),
+                ModulationTarget("rms", "beacon", "master", scale=1.5, offset=0.2, max_value=1.5, smooth=0.7),
+                ModulationTarget("rms_delta", "shaper", "gain", voice=7, scale=0.5, offset=0.0, max_value=1.0, threshold=0.01),
+            ],
+        }
+        if name not in presets:
+            raise ValueError(f"unknown preset: {name}")
+        self.set_targets(presets[name])
+        log.info("SampleModulator preset mapping installed: %s", name)
