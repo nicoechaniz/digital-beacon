@@ -29,7 +29,7 @@ class SampleManager:
         self.sc_host = sc_host
         self.sc_port = sc_port
         self.sc_osc = SimpleUDPClient(sc_host, sc_port)
-        self.player = SamplePlayer(sr=48000)
+        self.player = SamplePlayer(sc_host=sc_host, sc_port=sc_port)
         self.layer: Optional[SampleLayer] = None
         self.modulator: Optional[SampleModulator] = None
         self.current_path: Optional[str] = None

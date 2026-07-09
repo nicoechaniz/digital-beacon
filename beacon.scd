@@ -17,6 +17,9 @@
 //   /beacon/dist/N [1..32] [0..3]     - per-band distance gain multiplier
 //   /beacon/master [0..3]
 //   /beacon/panic            - all bands off
+//   /beacon/sample/load [path]   - load and loop a sample through the mix
+//   /beacon/sample/gain [0..1]   - sample layer gain
+//   /beacon/sample/stop          - stop sample layer
 //
 // Outbound (sclang broadcasts to :9001):
 //   /beacon/f1 [hz]
@@ -29,6 +32,7 @@
 var nBands = 32;
 var defaultF1 = 40.0;
 var buf, decoder, synth, oscdefs;
+var sampleBuf, sampleSynth;
 var audioFilePath = "/home/nicolas/Projects/beacon-spatial/harmonic_beacon_2026_05_13_session.wav";
 var useFile = "BEACON_SOURCE".getenv == "file";
 var defName = if (useFile) { \digital_beacon_file } { \digital_beacon_live };
@@ -178,6 +182,17 @@ server.doWhenBooted({
   server.sync;
   "SynthDef \\% added.".format(defName).postln;
 
+  // Sample player layer (mono source, mixed to both output channels)
+  "Defining SynthDef \\sample_player ...".postln;
+  SynthDef(\sample_player, {
+    arg out = 0, bufnum = 0, gain = 0.0;
+    var sig = PlayBuf.ar(1, bufnum, BufRateScale.kr(bufnum), loop: 1);
+    sig = sig * gain.lag(0.05);
+    Out.ar(out, sig ! 2);  // mono -> stereo
+  }).add;
+  server.sync;
+  "SynthDef \\sample_player added.".postln;
+
   // Instantiate
   if (useFile) {
     synth = Synth(defName, [\bufnum, buf.bufnum]);
@@ -292,13 +307,44 @@ server.doWhenBooted({
     "[RESET] All bands restored.".postln;
   }, "/beacon/reset"));
 
-  "OSCdefs registered: 32 gain + 32 az + 32 on + 32 q + 32 dist + vsource + f1 + master + panic + reset (162 total).".postln;
+  // /beacon/sample/load — load a sample buffer and start looping it through the mix
+  oscdefs = oscdefs.add(OSCdef(\db_sample_load, { |msg|
+    var path = msg[1].asString;
+    if (sampleSynth.notNil) { sampleSynth.free; sampleSynth = nil; };
+    if (sampleBuf.notNil) { sampleBuf.free; sampleBuf = nil; };
+    if (path == "") {
+      "[SAMPLE] empty path, stopped".postln;
+    } {
+      "[SAMPLE] loading: %".format(path.basename).postln;
+      sampleBuf = Buffer.read(server, path, action: { |b|
+        "[SAMPLE] buffer ready: %".format(b.bufnum).postln;
+        sampleSynth = Synth(\sample_player, [\bufnum, b.bufnum, \gain, 0.0]);
+      });
+    };
+  }, "/beacon/sample/load"));
+
+  // /beacon/sample/gain — adjust sample layer gain
+  oscdefs = oscdefs.add(OSCdef(\db_sample_gain, { |msg|
+    var g = msg[1].asFloat.clip(0.0, 1.0);
+    if (sampleSynth.notNil) { sampleSynth.set(\gain, g); };
+  }, "/beacon/sample/gain"));
+
+  // /beacon/sample/stop — stop sample layer
+  oscdefs = oscdefs.add(OSCdef(\db_sample_stop, { |msg|
+    if (sampleSynth.notNil) { sampleSynth.free; sampleSynth = nil; };
+    if (sampleBuf.notNil) { sampleBuf.free; sampleBuf = nil; };
+    "[SAMPLE] stopped".postln;
+  }, "/beacon/sample/stop"));
+
+  "OSCdefs registered: 32 gain + 32 az + 32 on + 32 q + 32 dist + vsource + f1 + master + panic + reset + sample load/gain/stop (165 total).".postln;
 
   // Cleanup
   ServerQuit.add({
     "ServerQuit: freeing digital-beacon resources...".postln;
     oscdefs.do { |d| d.free };
     if (synth.notNil) { synth.free };
+    if (sampleSynth.notNil) { sampleSynth.free };
+    if (sampleBuf.notNil) { sampleBuf.free };
     if (decoder.notNil) { decoder.free };
     if (buf.notNil) { buf.free };
   }, server);
