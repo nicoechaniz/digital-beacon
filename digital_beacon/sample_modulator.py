@@ -70,9 +70,9 @@ class ModulationTarget:
             raise ValueError(f"unknown beacon param: {self.param}")
         if self.target_type == "shaper" and self.param not in SHAPER_PARAMS:
             raise ValueError(f"unknown shaper param: {self.param}")
-        if self.param in ("gain", "az", "dist", "q", "on") and self.band is None:
+        if self.target_type == "beacon" and self.param in ("gain", "az", "dist", "q", "on") and self.band is None:
             raise ValueError(f"beacon param {self.param} requires band")
-        if self.param in ("gain", "pan", "shape", "lfo_gain", "lfo_pan", "lfo_phase") and self.voice is None:
+        if self.target_type == "shaper" and self.param in ("gain", "pan", "shape", "lfo_gain", "lfo_pan", "lfo_phase") and self.voice is None:
             raise ValueError(f"shaper param {self.param} requires voice")
 
     def to_dict(self) -> Dict[str, Any]:

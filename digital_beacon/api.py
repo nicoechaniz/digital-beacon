@@ -455,6 +455,38 @@ def create_app(store: VoiceParameterStore, recorder=None, sample_manager: Sample
                     files.append(str(wav))
         return {"ok": True, "samples": files}
 
+    @app.get("/api/sample/presets")
+    async def sample_presets():
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        return {"ok": True, "presets": sample_manager.list_presets()}
+
+    @app.post("/api/sample/preset")
+    async def sample_preset(body: dict):
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        name = body.get("name")
+        if not name:
+            return {"ok": False, "error": "name required"}
+        try:
+            sample_manager.apply_preset(name)
+            return {"ok": True, "name": name, "targets": sample_manager.list_targets()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
+    @app.post("/api/sample/save-preset")
+    async def sample_save_preset(body: dict):
+        if sample_manager is None:
+            return {"ok": False, "error": "sample manager not enabled"}
+        name = body.get("name")
+        if not name:
+            return {"ok": False, "error": "name required"}
+        try:
+            sample_manager.save_preset(name)
+            return {"ok": True, "name": name, "presets": sample_manager.list_presets()}
+        except Exception as e:
+            return {"ok": False, "error": str(e)}
+
     @app.post("/api/sample/upload")
     async def sample_upload(file: UploadFile = File(...)):
         if sample_manager is None:

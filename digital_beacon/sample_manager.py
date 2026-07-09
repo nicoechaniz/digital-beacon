@@ -6,12 +6,13 @@ web dashboard and CLI.
 
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 
 from .sample_layer import SampleDescriptor, SampleLayer
-from .sample_modulator import ModulationTarget, SampleModulator
+from .sample_modulator import ModulationTarget, SampleModulator, VALID_DESCRIPTORS
 from .state import VoiceParameterStore
 
 log = logging.getLogger(__name__)
@@ -27,6 +28,9 @@ class SampleManager:
         self.layer: Optional[SampleLayer] = None
         self.modulator: Optional[SampleModulator] = None
         self.current_path: Optional[str] = None
+
+        self._presets_dir = Path.home() / "Music" / "digital-beacon-mapping-presets"
+        self._presets_dir.mkdir(parents=True, exist_ok=True)
 
     def load(self, path: str, sr: int = 48000, chunk_s: float = 0.05,
              f0_beacon_hz: float = 40.4, default_mapping: bool = True) -> None:
@@ -68,40 +72,43 @@ class SampleManager:
         """Replace the current modulation mapping with a list of target dicts."""
         if self.modulator is None:
             raise RuntimeError("no sample loaded")
-        self.modulator.remove_targets()
-        for t in targets:
-            self.modulator.add_target(ModulationTarget(
-                descriptor=t["descriptor"],
-                target_type=t["target_type"],
-                param=t["param"],
-                voice=t.get("voice"),
-                band=t.get("band"),
-                scale=float(t.get("scale", 1.0)),
-                offset=float(t.get("offset", 0.0)),
-                min_value=float(t.get("min_value", 0.0)),
-                max_value=float(t.get("max_value", 1.0)),
-                active=bool(t.get("active", True)),
-            ))
+        targets = [t for t in targets if t.get("descriptor") in VALID_DESCRIPTORS]
+        self.modulator.mapping_from_dict(targets)
         log.info("SampleManager mapping updated: %d targets", len(targets))
+
+    def apply_preset(self, name: str) -> None:
+        """Apply a named mapping preset (built-in or user-saved)."""
+        if self.modulator is None:
+            raise RuntimeError("no sample loaded")
+        # Try user-saved first
+        preset_path = self._presets_dir / f"{name}.json"
+        if preset_path.exists():
+            data = json.loads(preset_path.read_text())
+            self.set_mapping(data)
+            log.info("SampleManager loaded user preset: %s", name)
+            return
+        # Fall back to built-in preset
+        self.modulator.preset_mapping(name)
+        log.info("SampleManager loaded built-in preset: %s", name)
+
+    def save_preset(self, name: str) -> None:
+        """Save current mapping as a user preset."""
+        if self.modulator is None:
+            raise RuntimeError("no sample loaded")
+        preset_path = self._presets_dir / f"{name}.json"
+        preset_path.write_text(json.dumps(self.modulator.mapping_to_dict(), indent=2))
+        log.info("SampleManager saved preset: %s", name)
+
+    def list_presets(self) -> List[str]:
+        """List built-in + user mapping presets."""
+        built_ins = ["default", "tune-to-sample", "spectrum-projection", "timbre-filter", "rhythmic-pump"]
+        user_presets = [p.stem for p in self._presets_dir.glob("*.json")]
+        return sorted(set(built_ins + user_presets))
 
     def list_targets(self) -> List[Dict]:
         if self.modulator is None:
             return []
-        return [
-            {
-                "descriptor": t.descriptor,
-                "target_type": t.target_type,
-                "param": t.param,
-                "voice": t.voice,
-                "band": t.band,
-                "scale": t.scale,
-                "offset": t.offset,
-                "min_value": t.min_value,
-                "max_value": t.max_value,
-                "active": t.active,
-            }
-            for t in self.modulator.list_targets()
-        ]
+        return self.modulator.mapping_to_dict()
 
     def default_mapping(self) -> None:
         if self.modulator is None:
