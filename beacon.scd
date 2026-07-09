@@ -13,6 +13,8 @@
 //   /beacon/gain/N [1..32] [0..3]
 //   /beacon/az/N [1..32] [-180..180]
 //   /beacon/on/N [1..32] [0|1]
+//   /beacon/q/N [1..32] [0.01..4.0]   - BPF resonance (rq)
+//   /beacon/dist/N [1..32] [0..3]     - per-band distance gain multiplier
 //   /beacon/master [0..3]
 //   /beacon/panic            - all bands off
 //
@@ -92,7 +94,7 @@ server.doWhenBooted({
       // The NamedControl \f1 carries the current f1 (with lag).
       var f1 = \f1.kr(defaultF1).lag(0.05);
 
-      // 32 gains + 32 az + 32 on (default 1)
+      // 32 gains + 32 az + 32 on + 32 rq + 32 dist (default 1)
       var gains = Array.fill(nBands, { |i|
         ("gain" ++ (i+1)).asSymbol.kr(defaultGains[i]).lag(0.05)
       });
@@ -102,25 +104,26 @@ server.doWhenBooted({
       var ons = Array.fill(nBands, { |i|
         ("on" ++ (i+1)).asSymbol.kr(defaultOns[i])
       });
+      var rqs = Array.fill(nBands, { |i|
+        ("rq" ++ (i+1)).asSymbol.kr(0.5).lag(0.05)
+      });
+      var dists = Array.fill(nBands, { |i|
+        ("dist" ++ (i+1)).asSymbol.kr(1.0).lag(0.05)
+      });
       var master = \master.kr(master0);
-      // Band 32 (index 31) is a High-Pass Filter, not a BPF. Its center
-      // frequency is the cutoff. The \q32 control scales the cutoff: small
-      // q32 = high cutoff (above the band), large q32 = low cutoff.
-      // Default q32=1.0 means cutoff = f1*32 = 1280 Hz.
-      var q32 = \q32.kr(1.0).lag(0.05);
 
       // Build 31 BPFs + 1 HPF (last band)
       var bpfs = Array.fill(nBands, { |i|
         var freq = (f1 * (i+1)).clip(20.0, 18000.0);
         var sig;
         if (i == (nBands - 1)) {
-          // Band 32: HPF with cutoff at f1*32 (scaled by 1/q32)
-          var cutoff = (freq / q32).clip(20.0, 18000.0);
+          // Band 32: HPF with cutoff at f1*32 (scaled by 1/rq32)
+          var cutoff = (freq / rqs[i].max(0.01)).clip(20.0, 18000.0);
           sig = HPF.ar(src, cutoff);
         } {
-          sig = BPF.ar(src, freq, 0.5);  // Q=0.5 (1 octave bandwidth) per band
+          sig = BPF.ar(src, freq, rqs[i].max(0.01));
         };
-        sig * gains[i] * ons[i]
+        sig * gains[i] * ons[i] * dists[i]
       });
 
       // Per-band FoaPanB
@@ -210,6 +213,18 @@ server.doWhenBooted({
       },
       "/beacon/on/" ++ n
     ));
+    // 32x q/rq
+    oscdefs = oscdefs.add(OSCdef(
+      ("db_q_" ++ n).asSymbol,
+      { |msg| synth.set(("rq" ++ n).asSymbol, msg[1].asFloat.clip(0.01, 4.0)) },
+      "/beacon/q/" ++ n
+    ));
+    // 32x dist
+    oscdefs = oscdefs.add(OSCdef(
+      ("db_dist_" ++ n).asSymbol,
+      { |msg| synth.set(("dist" ++ n).asSymbol, msg[1].asFloat.clip(0.0, 3.0)) },
+      "/beacon/dist/" ++ n
+    ));
   };
 
   // /beacon/vsource — varispeed rate multiplier
@@ -271,11 +286,13 @@ server.doWhenBooted({
       synth.set(("gain" ++ n).asSymbol, defaultGains[i]);
       synth.set(("az" ++ n).asSymbol, defaultAz[i]);
       synth.set(("on" ++ n).asSymbol, 1.0);
+      synth.set(("rq" ++ n).asSymbol, 0.5);
+      synth.set(("dist" ++ n).asSymbol, 1.0);
     };
     "[RESET] All bands restored.".postln;
   }, "/beacon/reset"));
 
-  "OSCdefs registered: 32 gain + 32 az + 32 on + vsource + f1 + master + panic + reset (98 total).".postln;
+  "OSCdefs registered: 32 gain + 32 az + 32 on + 32 q + 32 dist + vsource + f1 + master + panic + reset (162 total).".postln;
 
   // Cleanup
   ServerQuit.add({
