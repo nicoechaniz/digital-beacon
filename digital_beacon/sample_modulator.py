@@ -308,6 +308,16 @@ class SampleModulator:
                 ModulationTarget(f"band_{i}", "beacon", "gain", band=i+1, scale=1.5, offset=0.0, max_value=1.5, smooth=0.8)
                 for i in range(32)
             ],
+            "consonance-gate": [
+                # More harmonic content -> beacon louder
+                ModulationTarget("harmonicity", "beacon", "master", scale=1.0, offset=0.2, max_value=1.2, smooth=0.9),
+                # More residual energy -> base band Q widens (dispersion)
+                ModulationTarget("residual_rms", "beacon", "q", band=1, scale=2.0, offset=0.5, max_value=3.0, smooth=0.9),
+                # More residual ratio -> shaper shape richer (noisier)
+                ModulationTarget("residual_ratio", "shaper", "shape", voice=1, scale=1.0, offset=0.0, max_value=1.0, smooth=0.9),
+                # Overall energy drives shaper master
+                ModulationTarget("rms", "shaper", "master", scale=0.8, offset=0.2, max_value=1.0, smooth=0.8),
+            ],
         }
         if name not in presets:
             raise ValueError(f"unknown preset: {name}")
