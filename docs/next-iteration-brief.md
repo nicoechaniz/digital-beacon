@@ -35,12 +35,50 @@ looped audio sample as a control source for both the beacon and the shaper.
 - Documentation: `docs/mapping-presets.md`, `docs/rnn-sound-notes.md`,
   `docs/analysis-inventory.md`, `MEMORY.md`.
 
-## Research pending
+## Research output (RNN applied to mappings and filters)
 
-A background subagent is investigating how ResonantNeuralNet ideas
-(phase-manifold, Jpsh! impulses, golden-ratio perturbation, hierarchical
-representation) can inspire sample-to-modulation mappings and resonant filter
-design. Its output will be attached to this brief once available.
+Source: subagent reading local documents (`ResonantNeuralNet A Cymatic.md`,
+`rnn-sound-notes.md`, `analysis-inventory.md`, `mapping-presets.md`, `MEMORY.md`,
+current code).
+
+### Proposed mappings (5)
+
+1. **phase-manifold-tune** — `f0_hz` + `f0_stability` + `inharmonicity` retune
+   the beacon to the sample's fundamental; unstable/harmonic content widens
+   the base band Q. Maps all 32 sample bands to beacon band gains.
+2. **jpsh-excitation** — `rms_delta` and `centroid_delta` drive transient hits
+   on beacon master and shaper voice; sustained energy moves beacon distance.
+3. **hierarchical-harmonics** — sample bands project onto beacon bands preserving
+   low=global, high=local harmonic hierarchy.
+4. **consonance-dissonance** — `inharmonicity` and `flatness` modulate beacon Q
+   and shaper shape; `f0_stability` fine-tunes varispeed.
+5. **nodal-topology-spatial** — each sample band moves the corresponding beacon
+   band in azimuth and distance, bending the spatial field to match the sample's
+   spectral topology.
+
+### Proposed resonant filters (2)
+
+A. **consonance-mask** — STFT-based filter that passes energy near integer
+   ratios of f1 and attenuates near φ (golden ratio), implementing the
+   RNN "golden-ratio perturbation detector" as a harmonic filter.
+
+B. **adaptive-harmonic-mask** — reuse `nh_analysis.mask.harmonic_mask`, but adapt
+   its bandwidth in real time from `flatness`, `inharmonicity`, and
+   `f0_stability`; outputs harmonic + residual components.
+
+### PoC suggestion
+
+1. Extend `VALID_DESCRIPTORS` to `band_0..31`.
+2. Implement `adaptive-harmonic-mask` in Python using `nh_analysis.mask`.
+3. Add `phase-manifold-tune` preset.
+4. Test A/B with a Costa Rica field recording and a voice sample.
+
+### Open questions
+
+- Where should the filter run: Python (flexible) or SuperCollider (low latency)?
+- Should the mask output be a new audio source mixed into the beacon, or a control signal?
+- How do we visualize the phase-manifold state in the UI?
+
 
 ## What we want from the forum
 
