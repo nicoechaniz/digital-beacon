@@ -552,6 +552,7 @@ async function pollSample(){
   if(descEl && r.descriptor){
     descEl.textContent=JSON.stringify(r.descriptor);
   }
+  updatePhaseManifold(r.descriptor);
   if(r.running){
     setSampleStatus('Running: '+(r.path||''),'#2ecc71');
   }
@@ -698,6 +699,26 @@ function setMappingStatus(msg,color){
   if(e){e.textContent=msg;e.style.color=color||'#888';}
 }
 
+
+function updatePhaseManifold(descriptor){
+  const container=document.getElementById('phase-manifold');
+  if(!container||!descriptor)return;
+  const bars=container.querySelectorAll('.pm-bar');
+  for(let i=0;i<32;i++){
+    const v=descriptor['harm_'+i]||0;
+    const h=Math.min(100,Math.max(4,v*100));
+    let b=bars[i];
+    if(!b){
+      b=document.createElement('div');
+      b.className='pm-bar';
+      b.style.cssText='width:100%;background:linear-gradient(to top,#3498db,#2ecc71);border-radius:1px;align-self:end;';
+      b.title='harm_'+i;
+      container.appendChild(b);
+    }
+    b.style.height=h+'%';
+  }
+}
+
 </script>
 
 <!-- Sample layer panel -->
@@ -740,6 +761,16 @@ function setMappingStatus(msg,color){
         <button onclick="applyMapping()" style="padding:4px;border:1px solid #e74c3c;color:#e74c3c;background:transparent;border-radius:3px;cursor:pointer;font-size:0.6rem;font-weight:600;">APPLY</button>
     </div>
     <div id="mapping-status" style="margin-top:8px;padding:6px;color:#888;font-size:0.65rem;"></div>
+</div>
+
+<!-- Phase-manifold panel -->
+<div class="mix-section" style="margin-top:8px;">
+    <div style="font-size:0.65rem;color:#888;text-transform:uppercase;letter-spacing:1px;margin-bottom:8px;">Phase Manifold (harm_0..31)</div>
+    <div id="phase-manifold" style="display:grid;grid-template-columns:repeat(32,1fr);gap:1px;height:80px;align-items:end;background:#0d0d14;border:1px solid #2a2a3e;padding:4px;border-radius:3px;">
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:0.5rem;color:#666;margin-top:2px;">
+        <span>1xf1</span><span>32xf1</span>
+    </div>
 </div>
 
 </body>
