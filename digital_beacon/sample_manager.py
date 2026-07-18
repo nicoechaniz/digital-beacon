@@ -43,7 +43,8 @@ class SampleManager:
         # Reset vsrate before f1 so f1 ends up at the default value
         self.store.set_vsrate(1.0)
         self.store.update_f1(40.4)
-        self.store.set_master_gain(0.0)
+        # Default shaper master gain, not 0.0 — pads should still be audible after a reset.
+        self.store.set_master_gain(0.8)
         for i in range(1, 33):
             self.sc_osc.send_message(f"/beacon/gain/{i}", [0.8])
             self.sc_osc.send_message(f"/beacon/az/{i}", [0.0])
